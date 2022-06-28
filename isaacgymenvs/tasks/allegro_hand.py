@@ -80,26 +80,35 @@ class AllegroHand(VecTask):
         self.av_factor = self.cfg["env"].get("averFactor", 0.1)
 
         self.object_type = self.cfg["env"]["objectType"]
-        assert self.object_type in ["block", "egg", "pen"]
+        assert self.object_type in ["block", "egg", "pen", "bottle", "dispenser", "spray_bottle",
+                                    "pill_bottle"]
 
         self.ignore_z = (self.object_type == "pen")
 
         self.asset_files_dict = {
             "block": "urdf/objects/cube_multicolor.urdf",
             "egg": "mjcf/open_ai_assets/hand/egg.xml",
-            "pen": "mjcf/open_ai_assets/hand/pen.xml"
+            "pen": "mjcf/open_ai_assets/hand/pen.xml",
+            "bottle": "urdf/objects/bottle/mobility.urdf",
+            "spray_bottle": "urdf/objects/spray_bottle/mobility.urdf",
+            "pill_bottle": "urdf/objects/pill_bottle/mobility.urdf",
+            "dispenser": "urdf/objects/dispenser/mobility.urdf",
         }
 
         if "asset" in self.cfg["env"]:
             self.asset_files_dict["block"] = self.cfg["env"]["asset"].get("assetFileNameBlock", self.asset_files_dict["block"])
             self.asset_files_dict["egg"] = self.cfg["env"]["asset"].get("assetFileNameEgg", self.asset_files_dict["egg"])
             self.asset_files_dict["pen"] = self.cfg["env"]["asset"].get("assetFileNamePen", self.asset_files_dict["pen"])
+            self.asset_files_dict["bottle"] = self.cfg["env"]["asset"].get("assetFileNameBottle", self.asset_files_dict["bottle"])
+            self.asset_files_dict["spray_bottle"] = self.cfg["env"]["asset"].get("assetFileNameSprayBottle", self.asset_files_dict["spray_bottle"])
+            self.asset_files_dict["dispenser"] = self.cfg["env"]["asset"].get("assetFileNameDispenser", self.asset_files_dict["dispenser"])
+            self.asset_files_dict["pill_bottle"] = self.cfg["env"]["asset"].get("assetFileNamePillBottle", self.asset_files_dict["pill_bottle"])
 
-        # can be "full_no_vel", "full", "full_state"
-        self.obs_type = self.cfg["env"]["observationType"]
+                # can be "full_no_vel", "full", "full_state"
+            self.obs_type = self.cfg["env"]["observationType"]
 
-        if not (self.obs_type in ["full_no_vel", "full", "full_state"]):
-            raise Exception(
+            if not (self.obs_type in ["full_no_vel", "full", "full_state"]):
+                raise Exception(
                 "Unknown type of observations!\nobservationType should be one of: [openai, full_no_vel, full, full_state]")
 
         print("Obs type:", self.obs_type)
@@ -148,7 +157,7 @@ class AllegroHand(VecTask):
         #     self.vec_sensor_tensor = gymtorch.wrap_tensor(sensor_tensor).view(self.num_envs, self.num_fingertips * 6)
 
              dof_force_tensor = self.gym.acquire_dof_force_tensor(self.sim)
-             self.dof_force_tensor = gymtorch.wrap_tensor(dof_force_tensor).view(self.num_envs, self.num_shadow_hand_dofs)
+             self.dof_force_tensor = gymtorch.wrap_tensor(dof_force_tensor).view(self.num_envs, self.num_dofs_with_object)
 
         self.gym.refresh_actor_root_state_tensor(self.sim)
         self.gym.refresh_dof_state_tensor(self.sim)
@@ -238,7 +247,10 @@ class AllegroHand(VecTask):
         self.num_shadow_hand_bodies = self.gym.get_asset_rigid_body_count(shadow_hand_asset)
         self.num_shadow_hand_shapes = self.gym.get_asset_rigid_shape_count(shadow_hand_asset)
         self.num_shadow_hand_dofs = self.gym.get_asset_dof_count(shadow_hand_asset)
+        self.num_dofs_with_object = self.num_shadow_hand_dofs
         print("Num dofs: ", self.num_shadow_hand_dofs)
+        if self.object_type in ['dispenser']:
+            self.num_dofs_with_object += 4
         self.num_shadow_hand_actuators = self.num_shadow_hand_dofs #self.gym.get_asset_actuator_count(shadow_hand_asset)
 
         self.actuated_dof_indices = [i for i in range(self.num_shadow_hand_dofs)]
