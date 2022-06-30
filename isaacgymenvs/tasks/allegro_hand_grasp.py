@@ -37,7 +37,7 @@ from isaacgym.torch_utils import *
 from .base.vec_task import VecTask
 
 
-class AllegroHand(VecTask):
+class AllegroHandGrasp(VecTask):
     def __init__(self, cfg, sim_device, graphics_device_id, headless):
 
         self.cfg = cfg
@@ -340,15 +340,16 @@ class AllegroHand(VecTask):
 
         self.shadow_hand_dof_lower_limits = []
         self.shadow_hand_dof_upper_limits = []
-        self.shadow_hand_dof_default_pos = []
+        # self.shadow_hand_dof_default_pos = []
+        self.shadow_hand_dof_default_pos = np.load("allegro_hand_dof_default_pos.npy")
         self.shadow_hand_dof_default_vel = []
         self.sensors = []
-        sensor_pose = gymapi.Transform()
+        # sensor_pose = gymapi.Transform()
 
         for i in range(self.num_shadow_hand_dofs):
             self.shadow_hand_dof_lower_limits.append(shadow_hand_dof_props["lower"][i])
             self.shadow_hand_dof_upper_limits.append(shadow_hand_dof_props["upper"][i])
-            self.shadow_hand_dof_default_pos.append(0.0)
+            # self.shadow_hand_dof_default_pos.append(0.0)
             self.shadow_hand_dof_default_vel.append(0.0)
 
             print("Max effort: ", shadow_hand_dof_props["effort"][i])
@@ -386,20 +387,20 @@ class AllegroHand(VecTask):
         )
 
         shadow_hand_start_pose = gymapi.Transform()
-        shadow_hand_start_pose.p = gymapi.Vec3(*get_axis_params(0.5, self.up_axis_idx))
+        shadow_hand_start_pose.p = gymapi.Vec3(*get_axis_params(0.25, self.up_axis_idx))
         shadow_hand_start_pose.r = (
-            gymapi.Quat.from_axis_angle(gymapi.Vec3(0, 1, 0), np.pi)
-            * gymapi.Quat.from_axis_angle(gymapi.Vec3(1, 0, 0), 1.47 * np.pi)
+            gymapi.Quat.from_axis_angle(gymapi.Vec3(0, 1, 0), 1.5 * np.pi)
+            * gymapi.Quat.from_axis_angle(gymapi.Vec3(1, 0, 0), 1.97 * np.pi)
             * gymapi.Quat.from_axis_angle(gymapi.Vec3(0, 0, 1), 0.25 * np.pi)
         )
 
         object_start_pose = gymapi.Transform()
         object_start_pose.p = gymapi.Vec3()
-        object_start_pose.p.x = shadow_hand_start_pose.p.x
-        pose_dy, pose_dz = -0.2, 0.06
+        # object_start_pose.p.x = shadow_hand_start_pose.p.x
+        # pose_dy, pose_dz = -0.2, 0.06
 
-        object_start_pose.p.y = shadow_hand_start_pose.p.y + pose_dy
-        object_start_pose.p.z = shadow_hand_start_pose.p.z + pose_dz
+        # object_start_pose.p.y = shadow_hand_start_pose.p.y + pose_dy
+        # object_start_pose.p.z = shadow_hand_start_pose.p.z + pose_dz
 
         if self.object_type == "pen":
             object_start_pose.p.z = shadow_hand_start_pose.p.z + 0.02
@@ -836,11 +837,14 @@ class AllegroHand(VecTask):
 
     def reset_idx(self, env_ids, goal_env_ids):
         # generate random values
-        rand_floats = torch_rand_float(
-            -1.0,
-            1.0,
-            (len(env_ids), self.num_shadow_hand_dofs * 2 + 5),
-            device=self.device,
+        rand_floats = (
+            torch_rand_float(
+                -1.0,
+                1.0,
+                (len(env_ids), self.num_shadow_hand_dofs * 2 + 5),
+                device=self.device,
+            )
+            * 0
         )
 
         # randomize start object poses
@@ -947,6 +951,18 @@ class AllegroHand(VecTask):
         self.reset_buf[env_ids] = 0
         self.successes[env_ids] = 0
 
+    def control_hand_pos(self, move_pos):
+        hand_indices = self.hand_indices.to(torch.int32)
+        self.root_state_tensor[
+            self.hand_indices, :3
+        ] = move_pos  # root state tensor position
+        assert self.gym.set_actor_root_state_tensor_indexed(
+            self.sim,
+            gymtorch.unwrap_tensor(self.root_state_tensor),
+            gymtorch.unwrap_tensor(hand_indices),
+            len(hand_indices),
+        ), "set hand root position failed"
+
     def pre_physics_step(self, actions):
         env_ids = self.reset_buf.nonzero(as_tuple=False).squeeze(-1)
         goal_env_ids = self.reset_goal_buf.nonzero(as_tuple=False).squeeze(-1)
@@ -962,7 +978,10 @@ class AllegroHand(VecTask):
         if len(env_ids) > 0:
             self.reset_idx(env_ids, goal_env_ids)
 
+        move_pos, actions = actions[:, :3], actions[:, 3:]
         self.actions = actions.clone().to(self.device)
+
+        self.control_hand_pos(move_pos)
         if self.use_relative_control:
             targets = (
                 self.prev_targets[:, self.actuated_dof_indices]
