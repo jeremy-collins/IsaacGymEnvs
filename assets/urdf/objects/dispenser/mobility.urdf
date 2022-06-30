@@ -5,49 +5,49 @@
 		<visual name="mouth-8">
 			<origin xyz="-0.004069706478648613 0 -0.007451467190511252"/>
 			<geometry>
-				<mesh filename="textured_objs/new-0.obj"/>
+				<mesh filename="textured_objs/new-0.obj" scale="0.1 0.1 0.1"/>
 			</geometry>
 		</visual>
 		<visual name="mouth-8">
 			<origin xyz="-0.004069706478648613 0 -0.007451467190511252"/>
 			<geometry>
-				<mesh filename="textured_objs/new-1.obj"/>
+				<mesh filename="textured_objs/new-1.obj" scale="0.1 0.1 0.1"/>
 			</geometry>
 		</visual>
 		<visual name="mouth-8">
 			<origin xyz="-0.004069706478648613 0 -0.007451467190511252"/>
 			<geometry>
-				<mesh filename="textured_objs/original-3.obj"/>
+				<mesh filename="textured_objs/original-3.obj" scale="0.1 0.1 0.1"/>
 			</geometry>
 		</visual>
 		<visual name="mouth-8">
 			<origin xyz="-0.004069706478648613 0 -0.007451467190511252"/>
 			<geometry>
-				<mesh filename="textured_objs/original-4.obj"/>
+				<mesh filename="textured_objs/original-4.obj" scale="0.1 0.1 0.1"/>
 			</geometry>
 		</visual>
 		<collision>
 			<origin xyz="-0.004069706478648613 0 -0.007451467190511252"/>
 			<geometry>
-				<mesh filename="textured_objs/new-0.obj"/>
+				<mesh filename="textured_objs/new-0.obj" scale="0.1 0.1 0.1"/>
 			</geometry>
 		</collision>
 		<collision>
 			<origin xyz="-0.004069706478648613 0 -0.007451467190511252"/>
 			<geometry>
-				<mesh filename="textured_objs/new-1.obj"/>
+				<mesh filename="textured_objs/new-1.obj" scale="0.1 0.1 0.1"/>
 			</geometry>
 		</collision>
 		<collision>
 			<origin xyz="-0.004069706478648613 0 -0.007451467190511252"/>
 			<geometry>
-				<mesh filename="textured_objs/original-3.obj"/>
+				<mesh filename="textured_objs/original-3.obj" scale="0.1 0.1 0.1"/>
 			</geometry>
 		</collision>
 		<collision>
 			<origin xyz="-0.004069706478648613 0 -0.007451467190511252"/>
 			<geometry>
-				<mesh filename="textured_objs/original-4.obj"/>
+				<mesh filename="textured_objs/original-4.obj" scale="0.1 0.1 0.1"/>
 			</geometry>
 		</collision>
 	</link>
@@ -61,37 +61,37 @@
 		<visual name="body-6">
 			<origin xyz="0 0 0"/>
 			<geometry>
-				<mesh filename="textured_objs/new-5.obj"/>
+				<mesh filename="textured_objs/new-5.obj" scale="0.1 0.1 0.1"/>
 			</geometry>
 		</visual>
 		<visual name="body-6">
 			<origin xyz="0 0 0"/>
 			<geometry>
-				<mesh filename="textured_objs/new-4.obj"/>
+				<mesh filename="textured_objs/new-4.obj" scale="0.1 0.1 0.1"/>
 			</geometry>
 		</visual>
 		<visual name="lid-7">
 			<origin xyz="0 0 0"/>
 			<geometry>
-				<mesh filename="textured_objs/new-2.obj"/>
+				<mesh filename="textured_objs/new-2.obj" scale="0.1 0.1 0.1"/>
 			</geometry>
 		</visual>
 		<collision>
 			<origin xyz="0 0 0"/>
 			<geometry>
-				<mesh filename="textured_objs/new-5.obj"/>
+				<mesh filename="textured_objs/new-5.obj" scale="0.1 0.1 0.1"/>
 			</geometry>
 		</collision>
 		<collision>
 			<origin xyz="0 0 0"/>
 			<geometry>
-				<mesh filename="textured_objs/new-4.obj"/>
+				<mesh filename="textured_objs/new-4.obj" scale="0.1 0.1 0.1"/>
 			</geometry>
 		</collision>
 		<collision>
 			<origin xyz="0 0 0"/>
 			<geometry>
-				<mesh filename="textured_objs/new-2.obj"/>
+				<mesh filename="textured_objs/new-2.obj" scale="0.1 0.1 0.1"/>
 			</geometry>
 		</collision>
 	</link>
