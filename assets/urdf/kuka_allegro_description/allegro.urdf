@@ -32,7 +32,7 @@
       </geometry>
     </collision>
   </link>
-  <joint name="allegro_mount_joint" type="fixed">
+  <joint name="allegro_mount_joint" type="floating">
     <origin rpy="0 -1.5708 0.785398" xyz="-0.008219 -0.02063 0.08086"/>
     <parent link="allegro_mount"/>
     <child link="palm_link"/>
@@ -59,7 +59,7 @@
       </geometry>
     </collision>
   </link>
-  
+
   <gazebo reference="palm_link">
     <material value="Gazebo/Grey"/>
   </gazebo>
