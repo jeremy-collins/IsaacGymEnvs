@@ -38,22 +38,24 @@ env:
 
   # reward -> dictionary
   distRewardScale: -10.0
-  rotRewardScale: 1.0
+  taskRewardScale: 1.0
   rotEps: 0.1
   actionPenaltyScale: -0.0002
   reachGoalBonus: 250
   fallDistance: 0.24
   fallPenalty: 0.0
 
-  objectType: "block" # can be block, egg or pen
+  objectType: "dispenser" # can be block, egg or pen
+  objectDofName: "joint_0"
+  objectDofTargetPos: 0.015
   observationType: "full_state" # can be "no_vel", "full_state"
   asymmetric_observations: False
-  successTolerance: 0.1
+  successTolerance: 0.05
   printNumSuccesses: False
   maxConsecutiveSuccesses: 0
 
   asset:
-    assetFileName: "urdf/kuka_allegro_description/allegro.urdf"
+    assetFileName: "urdf/kuka_allegro_description/allegro_grasp.urdf"
     assetFileNameBlock: "urdf/objects/cube_multicolor_allegro.urdf"
     assetFileNameEgg: "mjcf/open_ai_assets/hand/egg.xml"
     assetFileNamePen: "mjcf/open_ai_assets/hand/pen.xml"
