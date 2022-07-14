@@ -373,7 +373,7 @@ class AllegroHandGrasp(VecTask):
             # self.shadow_hand_dof_default_pos.append(0.0)
             self.shadow_hand_dof_default_vel.append(0.0)
 
-            print("Max effort: ", shadow_hand_dof_props["effort"][i])
+            # print("Max effort: ", shadow_hand_dof_props["effort"][i])
             shadow_hand_dof_props["effort"][i] = 0.5
             shadow_hand_dof_props["stiffness"][i] = 3
             shadow_hand_dof_props["damping"][i] = 0.1
@@ -658,7 +658,7 @@ class AllegroHandGrasp(VecTask):
             self.object_pos,
             self.object_dof_pos[:, self.object_target_dof_idx],
             self.goal_pos,
-            self.goal_dof_pos[:, self.object_target_dof_idx],
+            self.goal_dof_pos,
             self.hand_pos,
             self.dist_reward_scale,
             self.task_reward_scale,
@@ -681,7 +681,9 @@ class AllegroHandGrasp(VecTask):
         self.extras["hand_dist"] = torch.norm(
             self.hand_pos - self.object_pos, p=2, dim=-1
         )
-
+        self.extras["task_dist"] = (
+            self.goal_dof_pos - self.object_dof_pos[:, self.object_target_dof_idx]
+        ).flatten()
         if self.print_success_stat:
             self.total_resets = self.total_resets + self.reset_buf.sum()
             direct_average_successes = self.total_successes + self.successes.sum()
@@ -726,7 +728,7 @@ class AllegroHandGrasp(VecTask):
         self.goal_pose = self.goal_states[:, 0:7]
         self.goal_pos = self.goal_states[:, 0:3]
         self.goal_dof_pos = (
-            torch.ones_like(self.object_dof_state[: self.object_target_dof_idx, 0])
+            torch.ones_like(self.object_dof_state[:, self.object_target_dof_idx, 0])
             * self.object_target_dof_pos
         )
         self.goal_rot = self.goal_states[:, 3:7]
@@ -754,26 +756,26 @@ class AllegroHandGrasp(VecTask):
                 self.shadow_hand_dof_lower_limits,
                 self.shadow_hand_dof_upper_limits,
             )
+            start_idx = self.num_shadow_hand_dofs
 
             # hand joint obs + obj cur and goal pos: 17 + 6 = 23
-            start_idx = self.num_shadow_hand_dofs
             self.obs_buf[:, start_idx : start_idx + 3] = self.object_pos
             self.obs_buf[:, start_idx + 3 : start_idx + 6] = self.goal_pos
+            start_idx += 6
 
             # obj cur and goal dof pos: 23 + 2 = 25
-            start_idx += 6
             self.obs_buf[:, start_idx : start_idx + 1] = self.object_dof_pos[
                 :, self.object_target_dof_idx
             ].unsqueeze(-1)
             self.obs_buf[:, start_idx + 1 : start_idx + 2] = self.goal_dof_pos
+            start_idx += 2
 
             # hand palm pos: 25 + 7 = 32
-            start_idx += 2
             self.obs_buf[:, start_idx : start_idx + 3] = self.hand_pos
             self.obs_buf[:, start_idx + 3 : start_idx + 7] = self.hand_rot
+            start_idx += 7
 
             # hand joint actions: 32 + 17 = 49
-            start_idx += 7
             self.obs_buf[:, start_idx : start_idx + self.num_actions] = self.actions
             start_idx += self.num_actions
         else:
@@ -785,9 +787,9 @@ class AllegroHandGrasp(VecTask):
             self.obs_buf[
                 :, self.num_shadow_hand_dofs : 2 * self.num_shadow_hand_dofs
             ] = (self.vel_obs_scale * self.shadow_hand_dof_vel)
+            start_idx = 2 * self.num_shadow_hand_dofs
 
             # 2 * 17 = 34
-            start_idx = 2 * self.num_shadow_hand_dofs
             self.obs_buf[:, start_idx : start_idx + 7] = self.object_pose
             start_idx += 7
             self.obs_buf[:, start_idx : start_idx + 3] = self.object_linvel
@@ -795,28 +797,24 @@ class AllegroHandGrasp(VecTask):
             self.obs_buf[:, start_idx : start_idx + 3] = (
                 self.vel_obs_scale * self.object_angvel
             )
+            start_idx += 3
 
             # 34 + 13 = 47, add goal pos
-            start_idx += 3
             self.obs_buf[:, start_idx : start_idx + 1] = self.object_dof_pos[
                 :, self.object_target_dof_idx
             ].unsqueeze(-1)
-            self.obs_buf[:, start_idx + 1 : start_idx + 2] = self.goal_dof_pos[
-                :, self.object_target_dof_idx
-            ].unsqueeze(-1)
+            self.obs_buf[:, start_idx + 1 : start_idx + 2] = self.goal_dof_pos[:, None]
+            start_idx += 2
 
             # 47 + 2 = 49, add palm pos/vel
-            start_idx += 2
             self.obs_buf[:, start_idx : start_idx + 3] = self.hand_pos
             self.obs_buf[:, start_idx + 3 : start_idx + 6] = self.hand_linvel
-
-            # 13*self.num_fingertips = 65 4*13 = 52
-            # self.obs_buf[:, 72:137] = self.fingertip_state.reshape(self.num_envs, 65)
-            # 49 + 6 = 54
             start_idx += 6
+
+            # 49 + 6 = 54
             self.obs_buf[:, start_idx : start_idx + self.num_actions] = self.actions
-            # 54 + 17 = 71
             start_idx += self.num_actions
+            # 54 + 17 = 71
         expected_dim = self.num_obs_dict[self.obs_type]
         if start_idx != expected_dim:
             raise AssertionError(
@@ -933,6 +931,22 @@ class AllegroHandGrasp(VecTask):
                 )
             )
 
+    def _reset_done(self):
+        # overrides VecTask.reset_done to include goal_env_ids when calling reset_idx
+        env_ids = self.reset_buf.nonzero(as_tuple=False).flatten()
+        goal_env_ids = self.reset_goal_buf.nonzero(as_tuple=False).flatten()
+        self.reset_idx(env_ids, goal_env_ids)
+
+        self.obs_dict["obs"] = torch.clamp(
+            self.obs_buf, -self.clip_obs, self.clip_obs
+        ).to(self.rl_device)
+
+        # asymmetric actor-critic
+        if self.num_states > 0:
+            self.obs_dict["states"] = self.get_state()
+
+        return self.obs_dict, env_ids
+
     def reset_target_pose(self, env_ids, apply_reset=False):
         self.goal_states[env_ids, 0:7] = self.goal_init_state[env_ids, 0:7]
 
@@ -963,7 +977,7 @@ class AllegroHandGrasp(VecTask):
             )
         self.reset_goal_buf[env_ids] = 0
 
-    def reset_idx(self, env_ids, goal_env_ids):
+    def reset_idx(self, env_ids, goal_env_ids=None):
         # generate random values
         rand_floats = (
             torch_rand_float(
@@ -991,15 +1005,18 @@ class AllegroHandGrasp(VecTask):
             self.root_state_tensor[self.object_indices[env_ids], 7:13]
         )
 
-        object_indices = torch.unique(
-            torch.cat(
-                [
-                    self.object_indices[env_ids],
-                    self.goal_object_indices[env_ids],
-                    self.goal_object_indices[goal_env_ids],
-                ]
-            ).to(torch.int32)
-        )
+        if goal_env_ids is not None:
+            object_indices = [
+                self.object_indices[env_ids],
+                self.goal_object_indices[env_ids],
+                self.goal_object_indices[goal_env_ids],
+            ]
+        else:
+            object_indices = [
+                self.object_indices[env_ids],
+                self.goal_object_indices[env_ids],
+            ]
+        object_indices = torch.unique(torch.cat(object_indices).to(torch.int32))
         self.gym.set_actor_root_state_tensor_indexed(
             self.sim,
             gymtorch.unwrap_tensor(self.root_state_tensor),
@@ -1310,7 +1327,7 @@ def compute_hand_reward(
 
     # Distance to task completion
     task_dist = (task_target_pos - task_pos).flatten()
-    task_rew = (1 - (task_dist / task_target_pos.flatten())) * task_reward_scale
+    task_rew = (1 - (task_dist / task_target_pos)) * task_reward_scale
 
     if ignore_z_rot:
         success_tolerance = 2.0 * success_tolerance
