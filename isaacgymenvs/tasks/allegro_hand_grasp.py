@@ -146,7 +146,7 @@ class AllegroHandGrasp(VecTask):
 
         print("Obs type:", self.obs_type)
 
-        self.num_obs_dict = {"full_no_vel": 49, "full": 72, "full_state": 95}
+        self.num_obs_dict = {"full_no_vel": 49, "full": 72, "full_state": 89}
 
         self.up_axis = "z"
 
@@ -156,7 +156,7 @@ class AllegroHandGrasp(VecTask):
 
         num_states = 0
         if self.asymmetric_obs:
-            num_states = 88
+            num_states = 95
 
         self.cfg["env"]["numObservations"] = self.num_obs_dict[self.obs_type]
         self.cfg["env"]["numStates"] = num_states
@@ -203,7 +203,7 @@ class AllegroHandGrasp(VecTask):
             dof_force_tensor = self.gym.acquire_dof_force_tensor(self.sim)
             self.dof_force_tensor = gymtorch.wrap_tensor(dof_force_tensor).view(
                 self.num_envs, self.num_dofs_with_object
-            )
+            )[:, : self.num_shadow_hand_dofs]
 
         self.gym.refresh_actor_root_state_tensor(self.sim)
         self.gym.refresh_dof_state_tensor(self.sim)
@@ -403,7 +403,9 @@ class AllegroHandGrasp(VecTask):
         )
 
         if self.object_type in ["dispenser", "spray_bottle", "pill_bottle", "bottle"]:
-            self.num_object_dofs = self.gym.get_asset_dof_count(object_asset)
+            self.num_object_dofs = (
+                self.gym.get_asset_dof_count(object_asset) + 1
+            )  # TODO: find out where extra DOF for object coming from
             # self.object_target_dof_idx = self.gym.get_asset_dof_dict(object_asset)[
             #     self.object_target_dof_name
             # ]
@@ -767,7 +769,7 @@ class AllegroHandGrasp(VecTask):
             self.obs_buf[:, start_idx : start_idx + 1] = self.object_dof_pos[
                 :, self.object_target_dof_idx
             ].unsqueeze(-1)
-            self.obs_buf[:, start_idx + 1 : start_idx + 2] = self.goal_dof_pos
+            self.obs_buf[:, start_idx + 1 : start_idx + 2] = self.goal_dof_pos[:, None]
             start_idx += 2
 
             # hand palm pos: 25 + 7 = 32
@@ -857,10 +859,10 @@ class AllegroHandGrasp(VecTask):
             # 57 + 13 = 70, add goal pos
             self.states_buf[
                 :, goal_obs_start : goal_obs_start + 1
-            ] = self.object_dof_pos
+            ] = self.object_dof_pos[:, self.object_target_dof_idx].unsqueeze(-1)
             self.states_buf[
                 :, goal_obs_start + 1 : goal_obs_start + 2
-            ] = self.goal_dof_pos
+            ] = self.goal_dof_pos[:, None]
 
             # fingertip observations, state(pose and vel) + force-torque sensors
             # todo - add later
@@ -906,8 +908,12 @@ class AllegroHandGrasp(VecTask):
             )
 
             goal_obs_start = obj_obs_start + 13  # 57 + 13 = 70
-            self.obs_buf[:, goal_obs_start : goal_obs_start + 1] = self.object_dof_pos
-            self.obs_buf[:, goal_obs_start + 1 : goal_obs_start + 2] = self.goal_dof_pos
+            self.obs_buf[:, goal_obs_start : goal_obs_start + 1] = self.object_dof_pos[
+                :, self.object_target_dof_idx
+            ].unsqueeze(-1)
+            self.obs_buf[
+                :, goal_obs_start + 1 : goal_obs_start + 2
+            ] = self.goal_dof_pos[:, None]
 
             # TODO: fingertip observations, state(pose and vel) + force-torque sensors
             # num_ft_states = 13 * self.num_fingertips  # 65
@@ -918,7 +924,7 @@ class AllegroHandGrasp(VecTask):
             #                 num_ft_force_torques] = self.force_torque_obs_scale * self.vec_sensor_tensor
 
             # obs_end = 70 + 2 = 72
-            # obs_total = obs_end + num_actions = 72 + 19 = 91
+            # obs_total = obs_end + num_actions = 72 + 17 = 89
             obs_end = goal_obs_start + 2
             self.obs_buf[:, obs_end : obs_end + self.num_actions] = self.actions
             obs_total = obs_end + self.num_actions

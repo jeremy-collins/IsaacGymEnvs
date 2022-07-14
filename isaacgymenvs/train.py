@@ -52,7 +52,7 @@ def launch_rlg_hydra(cfg: DictConfig):
     from isaacgymenvs.utils.rlgames_utils import (
         RLGPUEnv,
         RLGPUAlgoObserver,
-        RLGPUScoreObserver,
+        RLGPUTaskAlgoObserver,
     )
     from rl_games.common import env_configurations, vecenv
     from rl_games.torch_runner import Runner
@@ -169,7 +169,7 @@ def launch_rlg_hydra(cfg: DictConfig):
 
     # convert CLI arguments into dictionory
     # create runner and set the settings
-    runner = build_runner(RLGPUAlgoObserver())
+    runner = build_runner(RLGPUTaskAlgoObserver())
     runner.load(rlg_config_dict)
     runner.reset()
 
