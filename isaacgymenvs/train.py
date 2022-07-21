@@ -65,8 +65,7 @@ def launch_rlg_hydra(cfg: DictConfig):
     import isaacgymenvs
 
     time_str = datetime.datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-    run_name = f"{cfg.wandb_name}"
-    run_name_dt = f"{run_name}_{time_str}"
+    run_name = f"{cfg.wandb_name}_{time_str}"
 
     # ensure checkpoints can be specified as relative paths
     if cfg.checkpoint:
@@ -90,6 +89,23 @@ def launch_rlg_hydra(cfg: DictConfig):
         cfg.seed, torch_deterministic=cfg.torch_deterministic, rank=rank
     )
 
+    if cfg.wandb_activate and rank == 0:
+        # Make sure to install WandB if you actually use this.
+        import wandb
+
+        run = wandb.init(
+            project=cfg.wandb_project,
+            group=cfg.wandb_group,
+            entity=cfg.wandb_entity,
+            config=cfg_dict,
+            sync_tensorboard=True,
+            name=run_name,
+            resume="allow",
+            monitor_gym=True,
+        )
+        OmegaConf.update(cfg, "experiment", run.name)
+        assert cfg.experiment == cfg.train.params.config.name
+
     def create_env_thunk(**kwargs):
         envs = isaacgymenvs.make(
             cfg.seed,
@@ -109,7 +125,7 @@ def launch_rlg_hydra(cfg: DictConfig):
             envs.is_vector_env = True
             envs = gym.wrappers.RecordVideo(
                 envs,
-                f"videos/{run_name_dt}",
+                f"videos/{run_name}",
                 step_trigger=lambda step: step % cfg.capture_video_freq == 0,
                 video_length=cfg.capture_video_len,
             )
@@ -162,31 +178,10 @@ def launch_rlg_hydra(cfg: DictConfig):
 
     # dump config dict
     experiment_dir = os.path.join("runs", cfg.train.params.config.name)
+    print(experiment_dir)
     os.makedirs(experiment_dir, exist_ok=True)
     with open(os.path.join(experiment_dir, "config.yaml"), "w") as f:
         f.write(OmegaConf.to_yaml(cfg))
-
-    if cfg.multi_gpu:
-        import horovod.torch as hvd
-
-        rank = hvd.rank()
-    else:
-        rank = 0
-
-    if cfg.wandb_activate and rank == 0:
-        # Make sure to install WandB if you actually use this.
-        import wandb
-
-        wandb.init(
-            project=cfg.wandb_project,
-            group=cfg.wandb_group,
-            entity=cfg.wandb_entity,
-            config=cfg_dict,
-            sync_tensorboard=True,
-            # name=run_name,
-            resume="allow",
-            monitor_gym=True,
-        )
 
     runner.run(
         {
