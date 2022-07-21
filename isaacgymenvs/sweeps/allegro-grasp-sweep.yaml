@@ -11,6 +11,8 @@ parameters:
     values: [.1, 1., 10.]
   max_iterations:
     value: 1500
+  headless:
+    value: true
 early_terminate:
   type: hyperband
   s: 2
