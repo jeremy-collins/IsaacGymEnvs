@@ -38,7 +38,7 @@ env:
 
   # reward -> dictionary
   distRewardScale: -10.0
-  taskRewardScale: 1.0
+  taskRewardScale: 100.0
   rotEps: 0.1
   actionPenaltyScale: -0.0002
   reachGoalBonus: 250
@@ -47,12 +47,12 @@ env:
 
   objectType: "dispenser" # can be block, egg or pen
   objectDofName: "joint_0"
-  objectDofTargetPos: 0.015
-  observationType: "full_state" # can be "no_vel", "full_state"
+  objectDofTargetPos: 0.015  # 0.05 for spray_bottle
+  observationType: "full_state" # can be "no_vel", "full_state", "full"
   asymmetric_observations: False
-  successTolerance: 0.05
+  successTolerance: 0.005
   printNumSuccesses: False
-  maxConsecutiveSuccesses: 1
+  maxConsecutiveSuccesses: 0
 
   asset:
     assetFileName: "urdf/kuka_allegro_description/allegro_grasp.urdf"
