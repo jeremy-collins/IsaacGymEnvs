@@ -65,7 +65,8 @@ def launch_rlg_hydra(cfg: DictConfig):
     import isaacgymenvs
 
     time_str = datetime.datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-    run_name = f"{cfg.wandb_name}_{time_str}"
+    run_name = f"{cfg.wandb_name}"
+    run_name_dt = f"{run_name}_{time_str}"
 
     # ensure checkpoints can be specified as relative paths
     if cfg.checkpoint:
@@ -89,20 +90,6 @@ def launch_rlg_hydra(cfg: DictConfig):
         cfg.seed, torch_deterministic=cfg.torch_deterministic, rank=rank
     )
 
-    if cfg.wandb_activate and rank == 0:
-        # Make sure to install WandB if you actually use this.
-        import wandb
-
-        run = wandb.init(
-            project=cfg.wandb_project,
-            group=cfg.wandb_group,
-            entity=cfg.wandb_entity,
-            config=cfg_dict,
-            sync_tensorboard=True,
-            name=run_name,
-            resume="allow",
-        )
-
     def create_env_thunk(**kwargs):
         envs = isaacgymenvs.make(
             cfg.seed,
@@ -122,7 +109,7 @@ def launch_rlg_hydra(cfg: DictConfig):
             envs.is_vector_env = True
             envs = gym.wrappers.RecordVideo(
                 envs,
-                f"videos/{run_name}",
+                f"videos/{run_name_dt}",
                 step_trigger=lambda step: step % cfg.capture_video_freq == 0,
                 video_length=cfg.capture_video_len,
             )
@@ -196,7 +183,7 @@ def launch_rlg_hydra(cfg: DictConfig):
             entity=cfg.wandb_entity,
             config=cfg_dict,
             sync_tensorboard=True,
-            id=run_name,
+            name=run_name,
             resume="allow",
             monitor_gym=True,
         )

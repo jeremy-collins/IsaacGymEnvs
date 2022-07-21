@@ -1,0 +1,23 @@
+name: allegro_grasp_sweep
+program: train.py
+method: grid
+metric:
+  name: scores/task_dist_scores/mean
+  goal: maximize
+parameters:
+  train.params.config.learning_rate:
+    values: [1e-5, 1e-4, 1e-3]
+  task.env.taskRewardScale:
+    values: [.1, 1., 10.]
+  max_iterations:
+    value: 1500
+early_terminate:
+  type: hyperband
+  s: 2
+  eta: 3
+  max_iter: 27
+command:
+  - ${env}
+  - ${interpreter}
+  - ${program}
+  - ${args_no_hyphens}

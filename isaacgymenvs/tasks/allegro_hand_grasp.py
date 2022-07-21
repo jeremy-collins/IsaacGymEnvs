@@ -727,8 +727,8 @@ class AllegroHandGrasp(VecTask):
         self.object_linvel = self.root_state_tensor[self.object_indices, 7:10]
         self.object_angvel = self.root_state_tensor[self.object_indices, 10:13]
 
-        self.goal_pose = self.goal_states[:, 0:7]
-        self.goal_pos = self.goal_states[:, 0:3]
+        self.goal_pose = self.object_init_state[:, :7]
+        self.goal_pos = self.goal_pose[:, 0:3]
         self.goal_dof_pos = (
             torch.ones_like(self.object_dof_state[:, self.object_target_dof_idx, 0])
             * self.object_target_dof_pos

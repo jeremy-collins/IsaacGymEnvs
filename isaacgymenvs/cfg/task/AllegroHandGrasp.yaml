@@ -17,7 +17,7 @@ env:
   stiffnessScale: 1.0
   forceLimitScale: 1.0
 
-  useRelativeControl: False
+  useRelativeControl: True
   dofSpeedScale: 20.0
   actionsMovingAverage: 1.0
   controlFrequencyInv: 2 # 30 Hz
@@ -52,7 +52,7 @@ env:
   asymmetric_observations: False
   successTolerance: 0.05
   printNumSuccesses: False
-  maxConsecutiveSuccesses: 0
+  maxConsecutiveSuccesses: 1
 
   asset:
     assetFileName: "urdf/kuka_allegro_description/allegro_grasp.urdf"
@@ -163,7 +163,7 @@ task:
 
 sim:
   dt: 0.01667 # 1/60
-  substeps: 2
+  substeps: 4
   up_axis: "z"
   use_gpu_pipeline: ${eq:${...pipeline},"gpu"}
   gravity: [0.0, 0.0, -9.81]
