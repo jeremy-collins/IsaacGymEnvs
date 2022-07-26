@@ -149,14 +149,14 @@ class AllegroHandGrasp(VecTask):
 
         print("Obs type:", self.obs_type)
 
-        self.num_obs_dict = {"full_no_vel": 64, "full": 87, "full_state": 104}
+        self.num_obs_dict = {"full_no_vel": 64, "full": 87, "full_state": 109}
 
         self.up_axis = "z"
         self.asymmetric_obs = self.cfg["env"]["asymmetric_observations"]
 
         num_states = 0
         if self.asymmetric_obs:
-            num_states = 104  # TODO: distinguish returned state vs observation
+            num_states = 109  # TODO: distinguish returned state vs observation
 
         self.cfg["env"]["numObservations"] = self.num_obs_dict[self.obs_type]
         self.cfg["env"]["numStates"] = num_states
@@ -1344,6 +1344,7 @@ def compute_hand_reward(
 
     # Distance to task completion
     task_dist = (task_target_pos - task_pos).flatten()
+    # Scales task reward from [0, task_reward_scale]
     task_rew = (1 - (task_dist / task_target_pos)) * task_reward_scale
 
     if ignore_z_rot:

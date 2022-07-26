@@ -1,4 +1,4 @@
-name: dispenser_rew_sweep
+name: dispenser_task_rew_sweep
 program: train.py
 method: grid
 metric:
@@ -6,7 +6,7 @@ metric:
   goal: maximize
 parameters:
   task.env.objectType:
-    value: "dispenser" # can be block, egg or pen
+    value: "dispenser" # can be spray_bottle, block, egg or pen
   task.env.objectDofName:
     value: "joint_0"
   task.env.objectDofTargetPos:
