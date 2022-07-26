@@ -37,8 +37,8 @@ env:
   forceDecayInterval: 0.08
 
   # reward -> dictionary
-  distRewardScale: -10.0
-  taskRewardScale: 100.0
+  distRewardScale: 1.0
+  taskRewardScale: 1.0
   rotEps: 0.1
   actionPenaltyScale: -0.0002
   reachGoalBonus: 250
@@ -52,7 +52,7 @@ env:
   asymmetric_observations: False
   successTolerance: 0.005
   printNumSuccesses: False
-  maxConsecutiveSuccesses: 0
+  maxConsecutiveSuccesses: 3
 
   asset:
     assetFileName: "urdf/kuka_allegro_description/allegro_grasp.urdf"
