@@ -42,7 +42,7 @@ env:
   rotEps: 0.1
   actionPenaltyScale: -0.0002
   reachGoalBonus: 250
-  fallDistance: 0.24
+  fallDistance: 0.3
   fallPenalty: 0.0
 
   objectType: "dispenser" # can be block, egg or pen
