@@ -90,6 +90,9 @@ class AllegroHandGrasp(VecTask):
         self.max_consecutive_successes = self.cfg["env"]["maxConsecutiveSuccesses"]
         self.av_factor = self.cfg["env"].get("averFactor", 0.1)
 
+        self.translation_scale = self.cfg["env"].get("translation_scale", 0.1)
+        self.orientation_scale = self.cfg["env"].get("orientation_scale", 0.1)
+
         self.object_type = self.cfg["env"]["objectType"]
         assert self.object_type in [
             "block",
@@ -146,21 +149,18 @@ class AllegroHandGrasp(VecTask):
 
         print("Obs type:", self.obs_type)
 
-        self.num_obs_dict = {"full_no_vel": 49, "full": 72, "full_state": 89}
+        self.num_obs_dict = {"full_no_vel": 64, "full": 87, "full_state": 104}
 
         self.up_axis = "z"
-
-        self.use_vel_obs = False
-        self.fingertip_obs = True
         self.asymmetric_obs = self.cfg["env"]["asymmetric_observations"]
 
         num_states = 0
         if self.asymmetric_obs:
-            num_states = 95
+            num_states = 104  # TODO: distinguish returned state vs observation
 
         self.cfg["env"]["numObservations"] = self.num_obs_dict[self.obs_type]
         self.cfg["env"]["numStates"] = num_states
-        self.cfg["env"]["numActions"] = 17  # 16 hand dof + 1 ee position
+        self.cfg["env"]["numActions"] = 22  # 16 hand dof + 1 ee position
 
         super().__init__(
             config=self.cfg,
@@ -209,10 +209,6 @@ class AllegroHandGrasp(VecTask):
         self.gym.refresh_dof_state_tensor(self.sim)
         self.gym.refresh_rigid_body_state_tensor(self.sim)
 
-        # create some wrapper tensors for different slices
-        self.shadow_hand_default_dof_pos = torch.zeros(
-            self.num_shadow_hand_dofs, dtype=torch.float, device=self.device
-        )
         self.dof_state = gymtorch.wrap_tensor(dof_state_tensor)
         self.shadow_hand_dof_state = self.dof_state.view(self.num_envs, -1, 2)[
             :, : self.num_shadow_hand_dofs
@@ -267,6 +263,12 @@ class AllegroHandGrasp(VecTask):
         )
 
         self.av_factor = to_torch(self.av_factor, dtype=torch.float, device=self.device)
+        self.rb_torque = torch.zeros(
+            (self.num_envs, self.num_bodies, 3), device=self.device, dtype=torch.float
+        )
+        self.rb_forces = torch.zeros(
+            (self.num_envs, self.num_bodies, 3), dtype=torch.float, device=self.device
+        )
 
         self.total_successes = 0
         self.total_resets = 0
@@ -282,10 +284,6 @@ class AllegroHandGrasp(VecTask):
             (torch.log(self.force_prob_range[0]) - torch.log(self.force_prob_range[1]))
             * torch.rand(self.num_envs, device=self.device)
             + torch.log(self.force_prob_range[1])
-        )
-
-        self.rb_forces = torch.zeros(
-            (self.num_envs, self.num_bodies, 3), dtype=torch.float, device=self.device
         )
 
     def create_sim(self):
@@ -315,7 +313,7 @@ class AllegroHandGrasp(VecTask):
         asset_root = os.path.join(
             os.path.dirname(os.path.abspath(__file__)), "../../assets"
         )
-        shadow_hand_asset_file = "urdf/kuka_allegro_description/allegro.urdf"
+        shadow_hand_asset_file = "urdf/kuka_allegro_description/allegro_grasp.urdf"
 
         if "asset" in self.cfg["env"]:
             asset_root = self.cfg["env"]["asset"].get("assetRoot", asset_root)
@@ -361,8 +359,8 @@ class AllegroHandGrasp(VecTask):
 
         self.shadow_hand_dof_lower_limits = []
         self.shadow_hand_dof_upper_limits = []
-        # self.shadow_hand_dof_default_pos = []
-        self.shadow_hand_dof_default_pos = np.load("allegro_hand_dof_default_pos.npy")
+        self.shadow_hand_dof_default_pos = []
+        # self.shadow_hand_dof_default_pos = np.load("allegro_hand_dof_default_pos.npy")
         self.shadow_hand_dof_default_vel = []
         self.sensors = []
         # sensor_pose = gymapi.Transform()
@@ -370,7 +368,7 @@ class AllegroHandGrasp(VecTask):
         for i in range(self.num_shadow_hand_dofs):
             self.shadow_hand_dof_lower_limits.append(shadow_hand_dof_props["lower"][i])
             self.shadow_hand_dof_upper_limits.append(shadow_hand_dof_props["upper"][i])
-            # self.shadow_hand_dof_default_pos.append(0.0)
+            self.shadow_hand_dof_default_pos.append(0.0)
             self.shadow_hand_dof_default_vel.append(0.0)
 
             # print("Max effort: ", shadow_hand_dof_props["effort"][i])
@@ -398,7 +396,7 @@ class AllegroHandGrasp(VecTask):
 
         # load manipulated object and goal assets
         object_asset_options = gymapi.AssetOptions()
-        object_asset = self.gym.load_asset(
+        self.object_asset = object_asset = self.gym.load_asset(
             self.sim, asset_root, object_asset_file, object_asset_options
         )
 
@@ -484,10 +482,13 @@ class AllegroHandGrasp(VecTask):
             shadow_hand_asset, "palm_link"
         )
 
-        shadow_hand_rb_count = self.gym.get_asset_rigid_body_count(shadow_hand_asset)
-        object_rb_count = self.gym.get_asset_rigid_body_count(object_asset)
+        self.object_rb_count = self.gym.get_asset_rigid_body_count(object_asset)
+        self.shadow_hand_rb_handles = list(range(self.num_shadow_hand_bodies))
         self.object_rb_handles = list(
-            range(shadow_hand_rb_count, shadow_hand_rb_count + object_rb_count)
+            range(
+                self.num_shadow_hand_bodies,
+                self.num_shadow_hand_bodies + self.object_rb_count,
+            )
         )
 
         for i in range(self.num_envs):
@@ -624,6 +625,9 @@ class AllegroHandGrasp(VecTask):
         ).view(self.num_envs, 13)
 
         # self.fingertip_handles = to_torch(self.fingertip_handles, dtype=torch.long, device=self.device)
+        self.shadow_hand_rb_handles = to_torch(
+            self.shadow_hand_rb_handles, dtype=torch.long, device=self.device
+        )
         self.object_rb_handles = to_torch(
             self.object_rb_handles, dtype=torch.long, device=self.device
         )
@@ -846,7 +850,7 @@ class AllegroHandGrasp(VecTask):
             ] = self.hand_linvel
 
             # 3 * 17 + 6 = 57
-            obj_obs_start = 3 * self.num_shadow_hand_dofs + 6  # 57
+            obj_obs_start = 3 * self.num_shadow_hand_dofs + 6  # 3 * num_actions + 6
             self.states_buf[:, obj_obs_start : obj_obs_start + 7] = self.object_pose
             self.states_buf[
                 :, obj_obs_start + 7 : obj_obs_start + 10
@@ -855,7 +859,7 @@ class AllegroHandGrasp(VecTask):
                 self.vel_obs_scale * self.object_angvel
             )
 
-            goal_obs_start = obj_obs_start + 13
+            goal_obs_start = obj_obs_start + 13  # 3 * num_actions + 19
             # 57 + 13 = 70, add goal pos
             self.states_buf[
                 :, goal_obs_start : goal_obs_start + 1
@@ -1074,17 +1078,23 @@ class AllegroHandGrasp(VecTask):
         self.reset_buf[env_ids] = 0
         self.successes[env_ids] = 0
 
-    def move_hand_pos(self, move_pos):
-        hand_indices = self.hand_indices.to(torch.int32)
-        self.root_state_tensor[
-            self.hand_indices, :3
-        ] = move_pos  # root state tensor position
-        assert self.gym.set_actor_root_state_tensor_indexed(
+    def move_hand_pos(self, actions=None):
+        actions = actions if actions is not None else self.actions
+        rb_forces, rb_torque = self.rb_forces.clone(), self.rb_torques.clone()
+        rb_forces[:, 1, :] = actions[:, 0:3] * self.dt * self.translation_scale * 100000
+        rb_forces[:, 1 + 26, :] = (
+            actions[:, 26:29] * self.dt * self.translation_scale * 100000
+        )
+        rb_torque[:, 1, :] = actions[:, 3:6] * self.dt * self.orientation_scale * 1000
+        rb_torque[:, 1 + 26, :] = (
+            actions[:, 29:32] * self.dt * self.orientation_scale * 1000
+        )
+        self.gym.apply_rigid_body_force_tensors(
             self.sim,
-            gymtorch.unwrap_tensor(self.root_state_tensor),
-            gymtorch.unwrap_tensor(hand_indices),
-            len(hand_indices),
-        ), "set hand root position failed"
+            gymtorch.unwrap_tensor(rb_forces),
+            gymtorch.unwrap_tensor(rb_torque),
+            gymapi.ENV_SPACE,
+        )
 
     def pre_physics_step(self, actions):
         env_ids = self.reset_buf.nonzero(as_tuple=False).squeeze(-1)
@@ -1114,6 +1124,7 @@ class AllegroHandGrasp(VecTask):
                 self.shadow_hand_dof_upper_limits[self.actuated_dof_indices],
             )
         else:
+            # self.move_hand_pos()
             self.cur_targets[:, self.actuated_dof_indices] = scale(
                 actions,
                 self.shadow_hand_dof_lower_limits[self.actuated_dof_indices],
