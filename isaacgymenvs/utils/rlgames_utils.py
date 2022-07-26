@@ -175,6 +175,10 @@ class RLGPUTaskAlgoObserver(RLGPUAlgoObserver):
             k: torch_ext.AverageMeter(1, games_to_track).to(device)
             for k in self.score_keys
         }
+        self.mean_scores_map.update({f"{k}_final": torch_ext.AverageMeter(1, games_to_track).to(device)
+            for k in self.score_keys
+        })
+
         self.ep_infos = []
         self.direct_info = {}
         if hasattr(self.algo, "writer"):
@@ -205,6 +209,16 @@ class RLGPUTaskAlgoObserver(RLGPUAlgoObserver):
                         and len(v.shape) == 1
                     ):
                         self.mean_scores_map[k].update(v)
+                for k, v in infos.items():
+                    # only log scalars
+                    final_v = v[done_indices]
+                    if (
+                        k in self.score_keys
+                        and isinstance(final_v, torch.Tensor)
+                        and len(final_v.shape) == 1
+                        and final_v.shape[0] > 0
+                    ):
+                        self.mean_scores_map[f"{k}_final"].update(final_v)
 
     def after_clear_stats(self):
         for score_values in self.mean_scores_map.values():
@@ -217,6 +231,10 @@ class RLGPUTaskAlgoObserver(RLGPUAlgoObserver):
                 mean_scores = score_values.get_mean()
                 self.writer.add_scalar(
                     f"scores/{score_key}_scores/mean", mean_scores, frame
+                )
+                final_scores = score_values.get_mean()
+                self.writer.add_scalar(
+                    f"scores/{score_key}_scores/final", mean_scores, frame
                 )
                 self.writer.add_scalar(
                     f"scores/{score_key}_scores/iter", mean_scores, epoch_num
