@@ -209,16 +209,9 @@ class RLGPUTaskAlgoObserver(RLGPUAlgoObserver):
                         and len(v.shape) == 1
                     ):
                         self.mean_scores_map[k].update(v)
-                for k, v in infos.items():
-                    # only log scalars
-                    final_v = v[done_indices]
-                    if (
-                        k in self.score_keys
-                        and isinstance(final_v, torch.Tensor)
-                        and len(final_v.shape) == 1
-                        and final_v.shape[0] > 0
-                    ):
-                        self.mean_scores_map[f"{k}_final"].update(final_v)
+                        final_v = v[done_indices]
+                        if final_v.shape[0] > 0:
+                            self.mean_scores_map[f"{k}_final"].update(final_v)
 
     def after_clear_stats(self):
         for score_values in self.mean_scores_map.values():
