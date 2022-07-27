@@ -1,4 +1,4 @@
-name: dispenser_task_action_sweep
+name: dispenser_task_rew_sweep
 program: train.py
 method: grid
 metric:
@@ -14,15 +14,9 @@ parameters:
   task.env.successTolerance:
     value: 0.015
   task.env.taskRewardScale:
-    value: 10.
+    values: [1., 10., 100.]
   task.env.distRewardScale:
-    value: 1.
-  task.env.actionPenaltyScale:
-    values: [-0.002, -0.02, -0.2]
-  task.env.actionsMovingAverage:
-    values: [1., 0.75, 0.5]
-  task.env.useRelativeControl:
-    value: false
+    values: [-1., -10., -0.1]
   seed:
     values: [1, 100, 10000]
   max_iterations:

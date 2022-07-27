@@ -1337,10 +1337,11 @@ def compute_hand_reward(
 ):
     # Distance from the goal object
     goal_dist = torch.norm(object_pos - target_pos, p=2, dim=-1)
+    dist_rew = torch.exp(-goal_dist / fall_dist) * dist_reward_scale/2
 
     # Distance from the hand to the object
     hand_dist = torch.norm(hand_pos - object_pos, p=2, dim=-1)
-    dist_rew = torch.exp(-(hand_dist - 0.05) / fall_dist) * dist_reward_scale
+    dist_rew += torch.exp(-(hand_dist - 0.05) / fall_dist) * dist_reward_scale/2
 
     # Distance to task completion
     task_dist = (task_target_pos - task_pos).flatten()
