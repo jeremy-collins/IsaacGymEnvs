@@ -433,7 +433,7 @@ class AllegroHandGrasp(VecTask):
         object_start_pose.p = gymapi.Vec3()
         object_start_pose.p.x = -0.12
         object_start_pose.p.y = -0.08
-        object_start_pose.p.z = 0.067
+        object_start_pose.p.z = 0.124
         object_start_pose.r.w = 1.0
         object_start_pose.r.x = 0.0
         object_start_pose.r.y = 0.0
