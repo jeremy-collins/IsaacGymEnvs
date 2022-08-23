@@ -33,3 +33,5 @@ outputs/
 **.ipynb_checkpoints/
 *.tar.gz
 tags
+*.swp
+*.swo
