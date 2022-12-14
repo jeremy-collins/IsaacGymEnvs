@@ -30,3 +30,8 @@ runs/
 outputs/
 *.hydra*
 /isaacgymenvs/wandb
+**.ipynb_checkpoints/
+*.tar.gz
+tags
+*.swp
+*.swo
