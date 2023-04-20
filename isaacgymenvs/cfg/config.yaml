@@ -44,7 +44,7 @@ multi_gpu: False
 wandb_activate: False
 wandb_group: ''
 wandb_name: ${train.params.config.name}
-wandb_entity: ''
+wandb_entity: 'krshna'
 wandb_project: 'isaacgymenvs'
 wandb_tags: []
 wandb_logcode_dir: '' 
@@ -59,7 +59,7 @@ headless: False
 
 # set default task and default training config based on task
 defaults:
-  - task: Ant
+  - task: AllegroHandGrasp
   - train: ${task}PPO
   - hydra/job_logging: disabled
 
@@ -68,4 +68,3 @@ hydra:
   output_subdir: null
   run:
     dir: .
-

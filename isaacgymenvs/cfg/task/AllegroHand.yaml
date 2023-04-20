@@ -60,6 +60,10 @@ env:
     assetFileNameBlock: "urdf/objects/cube_multicolor_allegro.urdf"
     assetFileNameEgg: "mjcf/open_ai_assets/hand/egg.xml"
     assetFileNamePen: "mjcf/open_ai_assets/hand/pen.xml"
+    assetFileNameBottle: "urdf/objects/bottle/mobility.urdf"
+    assetFileNamePillBottle: "urdf/objects/pill_bottle/mobility.urdf"
+    assetFileNameSprayBottle: "urdf/objects/spray_bottle/mobility.urdf"
+    assetFileNameDispenser: "urdf/objects/dispenser/mobility.urdf"
 
 task:
   randomize: False

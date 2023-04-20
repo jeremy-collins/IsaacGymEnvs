@@ -1,0 +1,41 @@
+name: dispenser_task_action_sweep
+program: train.py
+method: grid
+metric:
+  name: scores/task_dist_scores/mean
+  goal: maximize
+parameters:
+  task.env.objectType:
+    value: "dispenser" # can be spray_bottle, block, egg or pen
+  task.env.objectDofName:
+    value: "joint_0"
+  task.env.objectDofTargetPos:
+    value: 0.05
+  task.env.successTolerance:
+    value: 0.015
+  task.env.taskRewardScale:
+    value: 10.
+  task.env.distRewardScale:
+    value: 1.
+  task.env.actionPenaltyScale:
+    values: [-0.002, -0.02, -0.2]
+  task.env.actionsMovingAverage:
+    values: [1., 0.75, 0.5]
+  task.env.useRelativeControl:
+    value: false
+  seed:
+    values: [1, 100, 10000]
+  max_iterations:
+    value: 1500
+  headless:
+    value: true
+early_terminate:
+  type: hyperband
+  s: 2
+  eta: 3
+  max_iter: 27
+command:
+  - ${env}
+  - ${interpreter}
+  - ${program}
+  - ${args_no_hyphens}

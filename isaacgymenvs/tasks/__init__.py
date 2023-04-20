@@ -30,7 +30,7 @@ from .ant import Ant
 from .anymal import Anymal
 from .anymal_terrain import AnymalTerrain
 from .ball_balance import BallBalance
-from .cartpole import Cartpole 
+from .cartpole import Cartpole
 from .factory.factory_task_gears import FactoryTaskGears
 from .factory.factory_task_insertion import FactoryTaskInsertion
 from .factory.factory_task_nut_bolt_pick import FactoryTaskNutBoltPick
@@ -44,8 +44,12 @@ from .ingenuity import Ingenuity
 from .quadcopter import Quadcopter
 from .shadow_hand import ShadowHand
 from .allegro_hand import AllegroHand
-from .dextreme.allegro_hand_dextreme import AllegroHandDextremeManualDR, AllegroHandDextremeADR
+from .dextreme.allegro_hand_dextreme import (
+    AllegroHandDextremeManualDR,
+    AllegroHandDextremeADR,
+)
 from .trifinger import Trifinger
+from .allegro_hand_grasp import AllegroHandGrasp
 
 
 # Mappings from strings to environments
@@ -53,6 +57,7 @@ isaacgym_task_map = {
     "AllegroHand": AllegroHand,
     "AllegroHandManualDR": AllegroHandDextremeManualDR,
     "AllegroHandADR": AllegroHandDextremeADR,
+    "AllegroHandGrasp": AllegroHandGrasp,
     "Ant": Ant,
     "Anymal": Anymal,
     "AnymalTerrain": AnymalTerrain,
