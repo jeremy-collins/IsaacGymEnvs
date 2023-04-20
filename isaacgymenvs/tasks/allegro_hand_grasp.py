@@ -544,7 +544,7 @@ class AllegroHandGrasp(VecTask):
                 env_ptr, object_asset, object_start_pose, "object", i, 0, 0
             )
             rb_props = self.gym.get_actor_rigid_body_properties(env_ptr, object_handle)
-            rb_props[1].mass = 10
+            rb_props[0].mass = 10
             # if self.object_type == "spray_bottle":
             #     self.gym.set_actor_scale(env_ptr, object_handle, 0.5)
             assert self.gym.set_actor_rigid_body_properties(
@@ -1337,11 +1337,11 @@ def compute_hand_reward(
 ):
     # Distance from the goal object
     goal_dist = torch.norm(object_pos - target_pos, p=2, dim=-1)
-    dist_rew = torch.exp(-goal_dist / fall_dist) * dist_reward_scale/2
+    dist_rew = torch.exp(-goal_dist / fall_dist) * dist_reward_scale / 2
 
     # Distance from the hand to the object
     hand_dist = torch.norm(hand_pos - object_pos, p=2, dim=-1)
-    dist_rew += torch.exp(-(hand_dist - 0.05) / fall_dist) * dist_reward_scale/2
+    dist_rew += torch.exp(-(hand_dist - 0.05) / fall_dist) * dist_reward_scale / 2
 
     # Distance to task completion
     task_dist = (task_target_pos - task_pos).flatten()

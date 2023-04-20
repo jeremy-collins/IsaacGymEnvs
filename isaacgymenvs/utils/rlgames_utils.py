@@ -169,15 +169,18 @@ class RLGPUTaskAlgoObserver(RLGPUAlgoObserver):
         # dummy mean_scores to keep parent methods from breaking
         # TODO: find way to integrate better
         games_to_track = self.algo.config.get("games_to_track", 100)
-        device = self.algo.config.get("device", "cuda:0")
+        device = self.algo.config.get("device_name", "cuda:0")
         self.mean_scores = torch_ext.AverageMeter(1, games_to_track).to(device)
         self.mean_scores_map = {
             k: torch_ext.AverageMeter(1, games_to_track).to(device)
             for k in self.score_keys
         }
-        self.mean_scores_map.update({f"{k}_final": torch_ext.AverageMeter(1, games_to_track).to(device)
-            for k in self.score_keys
-        })
+        self.mean_scores_map.update(
+            {
+                f"{k}_final": torch_ext.AverageMeter(1, games_to_track).to(device)
+                for k in self.score_keys
+            }
+        )
 
         self.ep_infos = []
         self.direct_info = {}
