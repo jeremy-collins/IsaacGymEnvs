@@ -56,14 +56,13 @@ env:
   maxConsecutiveSuccesses: 0
 
   asset:
-    assetFileName: "urdf/kuka_allegro_description/allegro.urdf"
+    assetFileName: "urdf/kuka_allegro_description/allegro_touch_sensor.urdf"
     assetFileNameBlock: "urdf/objects/cube_multicolor_allegro.urdf"
     assetFileNameEgg: "mjcf/open_ai_assets/hand/egg.xml"
     assetFileNamePen: "mjcf/open_ai_assets/hand/pen.xml"
-    assetFileNameBottle: "urdf/objects/bottle/mobility.urdf"
-    assetFileNamePillBottle: "urdf/objects/pill_bottle/mobility.urdf"
-    assetFileNameSprayBottle: "urdf/objects/spray_bottle/mobility.urdf"
-    assetFileNameDispenser: "urdf/objects/dispenser/mobility.urdf"
+
+  # set to True if you use camera sensors in the environment
+  enableCameraSensors: False
 
 task:
   randomize: False
@@ -158,9 +157,6 @@ task:
             distribution: "uniform"
             # schedule: "linear"  # "linear" will scale the current random sample by `min(current num steps, schedule_steps) / schedule_steps`
             # schedule_steps: 30000
-
-  # set to True if you use camera sensors in the environment
-  enableCameraSensors: False
 
 sim:
   dt: 0.01667 # 1/60

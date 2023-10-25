@@ -134,13 +134,13 @@ class AllegroHand(VecTask):
                 "assetFileNamePillBottle", self.asset_files_dict["pill_bottle"]
             )
 
-            # can be "full_no_vel", "full", "full_state"
-            self.obs_type = self.cfg["env"]["observationType"]
+        # can be "full_no_vel", "full", "full_state"
+        self.obs_type = self.cfg["env"]["observationType"]
 
-            if not (self.obs_type in ["full_no_vel", "full", "full_state"]):
-                raise Exception(
-                    "Unknown type of observations!\nobservationType should be one of: [openai, full_no_vel, full, full_state]"
-                )
+        if not (self.obs_type in ["full_no_vel", "full", "full_state"]):
+            raise Exception(
+                "Unknown type of observations!\nobservationType should be one of: [openai, full_no_vel, full, full_state]"
+            )
 
         print("Obs type:", self.obs_type)
 
