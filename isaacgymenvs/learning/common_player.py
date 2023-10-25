@@ -34,7 +34,7 @@ from rl_games.algos_torch import players
 from rl_games.algos_torch import torch_ext
 from rl_games.algos_torch.running_mean_std import RunningMeanStd
 from rl_games.common.player import BasePlayer
-from isaacgymenvs.utils.rlgames_utils import RLGPUTaskAlgoObserver
+from isaacgymenvs.utils.rlgames_utils import RLGPUAlgoObserver
 from tensorboardX import SummaryWriter
 
 
@@ -58,7 +58,7 @@ class CommonPlayer(players.PpoPlayerContinuous):
         return
 
     def _setup_writer(self):
-        if isinstance(self.config["features"]["observer"], RLGPUTaskAlgoObserver):
+        if isinstance(self.config["features"]["observer"], RLGPUAlgoObserver):
             train_dir = self.config.get("train_dir", "runs")
             experiment_dir = os.path.join(train_dir, self.experiment_name)
             self.summaries_dir = os.path.join(experiment_dir, "eval_summaries")
@@ -167,9 +167,7 @@ class CommonPlayer(players.PpoPlayerContinuous):
                                 cur_steps / done_count,
                             )
                     total_time = time.time() - start_time
-                    self.player_observer.after_print_stats(
-                        sum_steps, sum_game_res, total_time
-                    )
+                    self.player_observer.after_print_stats(sum_steps, sum_game_res, total_time)
 
                     sum_game_res += game_res
                     if batch_size // self.num_agents == 1 or games_played >= n_games:
@@ -236,10 +234,6 @@ class CommonPlayer(players.PpoPlayerContinuous):
 
     def _setup_action_space(self):
         self.actions_num = self.action_space.shape[0]
-        self.actions_low = (
-            torch.from_numpy(self.action_space.low.copy()).float().to(self.device)
-        )
-        self.actions_high = (
-            torch.from_numpy(self.action_space.high.copy()).float().to(self.device)
-        )
+        self.actions_low = torch.from_numpy(self.action_space.low.copy()).float().to(self.device)
+        self.actions_high = torch.from_numpy(self.action_space.high.copy()).float().to(self.device)
         return
