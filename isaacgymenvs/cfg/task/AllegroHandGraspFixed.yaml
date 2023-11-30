@@ -48,15 +48,17 @@ env:
 
   objectType: "dispenser" # can be block, egg or pen
   objectDofName: "joint_0"
-  objectDofTargetPos: 0.015  # 0.05 for spray_bottle
+  objectDofTargetPos: 0.015  # 0.05 for spray_bottle, 0.015 for dispenser
+  objectStiffness:
+  objectDamping:
   observationType: "full_state" # can be "no_vel", "full_state", "full"
   asymmetric_observations: False
   successTolerance: 0.05
   printNumSuccesses: False
-  maxConsecutiveSuccesses: 0
+  maxConsecutiveSuccesses: 10
 
   asset:
-    assetFileName: "urdf/kuka_allegro_description/allegro_grasp.urdf"
+    assetFileName: "urdf/kuka_allegro_description/allegro_grasp_fixed_y.urdf"
     assetFileNameBlock: "urdf/objects/cube_multicolor_allegro.urdf"
     assetFileNameEgg: "mjcf/open_ai_assets/hand/egg.xml"
     assetFileNamePen: "mjcf/open_ai_assets/hand/pen.xml"
