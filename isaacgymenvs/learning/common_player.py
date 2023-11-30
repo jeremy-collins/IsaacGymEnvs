@@ -34,7 +34,7 @@ from rl_games.algos_torch import players
 from rl_games.algos_torch import torch_ext
 from rl_games.algos_torch.running_mean_std import RunningMeanStd
 from rl_games.common.player import BasePlayer
-from isaacgymenvs.utils.rlgames_utils import RLGPUTaskAlgoObserver
+from isaacgymenvs.utils.rlgames_utils import RLGPUAlgoObserver
 from tensorboardX import SummaryWriter
 
 
@@ -58,12 +58,12 @@ class CommonPlayer(players.PpoPlayerContinuous):
         return
 
     def _setup_writer(self):
-        if isinstance(self.config["features"]["observer"], RLGPUTaskAlgoObserver):
+        if isinstance(self.player_observer, RLGPUAlgoObserver) or any([isinstance(x, RLGPUAlgoObserver) for x in self.player_observer.observers]):
             train_dir = self.config.get("train_dir", "runs")
             experiment_dir = os.path.join(train_dir, self.experiment_name)
             self.summaries_dir = os.path.join(experiment_dir, "eval_summaries")
             self.writer = SummaryWriter(self.summaries_dir)
-            self.player_observer.after_init(self)
+        self.player_observer.after_init(self)
 
     def run(self):
         n_games = self.games_num

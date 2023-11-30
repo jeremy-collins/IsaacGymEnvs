@@ -53,7 +53,8 @@ def preprocess_train_config(cfg, config_dict):
     """
 
     train_cfg = config_dict["params"]["config"]
-    train_cfg["full_experiment_name"] = cfg.get("full_experiment_name")
+    if cfg.get("full_experiment_name"):
+        train_cfg["full_experiment_name"] = cfg.full_experiment_name
 
     try:
         model_size_multiplier = config_dict["params"]["network"]["mlp"][
