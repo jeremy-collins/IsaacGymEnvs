@@ -6,7 +6,7 @@ physics_engine: ${..physics_engine}
 # if given, will override the device setting in gym.
 env:
   numEnvs: ${resolve_default:16384,${...num_envs}}
-  numActions: 22
+  numActions: 17
   envSpacing: 0.75
   episodeLength: 600
   enableDebugVis: False
@@ -48,15 +48,17 @@ env:
 
   objectType: "dispenser" # can be block, egg or pen
   objectDofName: "joint_2"
-  objectDofTargetPos: 0.015  # 0.05 for spray_bottle
+  objectDofTargetPos: 0.015  # 0.05 for spray_bottle, 0.015 for dispenser
+  objectStiffness: 10.
+  objectDamping: 0.5 
   observationType: "full_state" # can be "no_vel", "full_state", "full"
   asymmetric_observations: False
   successTolerance: 0.005
   printNumSuccesses: False
-  maxConsecutiveSuccesses: 0
+  maxConsecutiveSuccesses: 10
 
   asset:
-    assetFileName: "urdf/kuka_allegro_description/allegro_grasp.urdf"
+    assetFileName: "urdf/kuka_allegro_description/allegro_grasp_fixed_y.urdf"
     assetFileNameBlock: "urdf/objects/cube_multicolor_allegro.urdf"
     assetFileNameEgg: "mjcf/open_ai_assets/hand/egg.xml"
     assetFileNamePen: "mjcf/open_ai_assets/hand/pen.xml"

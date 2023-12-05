@@ -1,12 +1,11 @@
 # used to create the object
-name: AllegroHandGrasp
+name: AllegroHandGraspMulti
 
 physics_engine: ${..physics_engine}
 
 # if given, will override the device setting in gym.
 env:
   numEnvs: ${resolve_default:16384,${...num_envs}}
-  numActions: 22
   envSpacing: 0.75
   episodeLength: 600
   enableDebugVis: False
@@ -43,19 +42,25 @@ env:
   rotEps: 0.1
   actionPenaltyScale: -0.0002
   reachGoalBonus: 250
-  fallDistance: 0.24
-  fallPenalty: 0.0
+  fallDistance: 1.0
+  fallPenalty: -50.0
 
-  objectType: "dispenser" # can be block, egg or pen
-  objectDofName: "joint_0"
-  objectDofTargetPos: 0.015  # 0.05 for spray_bottle, 0.015 for dispenser
-  objectStiffness:
-  objectDamping:
+  objectTypes: 
+    - "dispenser" # can be block, egg or pen
+    # - "spray_bottle" # can be block, egg or pen
+  fixObjectBase: True  # whether object can shift around
+  objectDofName: 
+    - "joint_2"
+    # - "joint_0"
+  objectDofTargetPos: 
+    - 0.015
+    # - 0.075  # 0.05 for spray_bottle
   observationType: "full_state" # can be "no_vel", "full_state", "full"
+  numActions: 17
   asymmetric_observations: False
-  successTolerance: 0.05
+  successTolerance: 0.005
   printNumSuccesses: False
-  maxConsecutiveSuccesses: 10
+  maxConsecutiveSuccesses: 0
 
   asset:
     assetFileName: "urdf/kuka_allegro_description/allegro_grasp_fixed_y.urdf"
@@ -166,7 +171,7 @@ task:
 
 sim:
   dt: 0.01667 # 1/60
-  substeps: 2
+  substeps: 4
   up_axis: "z"
   use_gpu_pipeline: ${eq:${...pipeline},"gpu"}
   gravity: [0.0, 0.0, -9.81]

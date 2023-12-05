@@ -49,7 +49,7 @@ from .dextreme.allegro_hand_dextreme import (
     AllegroHandDextremeADR,
 )
 from .trifinger import Trifinger
-from .allegro_hand_grasp import AllegroHandGrasp
+from .allegro_hand_grasp import AllegroHandGrasp, AllegroHandGraspMultiTask
 
 
 # Mappings from strings to environments
@@ -58,6 +58,7 @@ isaacgym_task_map = {
     "AllegroHandManualDR": AllegroHandDextremeManualDR,
     "AllegroHandADR": AllegroHandDextremeADR,
     "AllegroHandGrasp": AllegroHandGrasp,
+    "AllegroHandGraspMulti": AllegroHandGraspMultiTask,
     "Ant": Ant,
     "Anymal": Anymal,
     "AnymalTerrain": AnymalTerrain,
