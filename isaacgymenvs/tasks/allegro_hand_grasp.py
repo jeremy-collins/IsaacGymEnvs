@@ -606,8 +606,6 @@ class AllegroHandGrasp(VecTask):
         self.extras["task_dist"] = (
             self.goal_dof_pos - self.object_dof_pos[:, self.object_target_dof_idx]
         ).flatten()
-        if (self.object_dof_pos > 0.01).any():
-            __import__("ipdb").set_trace()
         if self.print_success_stat:
             self.total_resets = self.total_resets + self.reset_buf.sum()
             direct_average_successes = self.total_successes + self.successes.sum()
