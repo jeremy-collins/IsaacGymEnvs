@@ -88,7 +88,7 @@ def launch_rlg_hydra(cfg: DictConfig):
     if cfg.pbt.enabled:
         initial_pbt_check(cfg)
 
-    from isaacgymenvs.utils.rlgames_utils import RLGPUEnv, RLGPUAlgoObserver, MultiObserver, ComplexObsRLGPUEnv
+    from isaacgymenvs.utils.rlgames_utils import RLGPUEnv, RLGPUEnvAlgoObserver, RLGPUAlgoObserver, MultiObserver, ComplexObsRLGPUEnv
     from isaacgymenvs.utils.wandb_utils import WandbAlgoObserver
     from rl_games.common import env_configurations, vecenv
     from rl_games.torch_runner import Runner
@@ -169,7 +169,7 @@ def launch_rlg_hydra(cfg: DictConfig):
     rlg_config_dict = omegaconf_to_dict(cfg.train)
     rlg_config_dict = preprocess_train_config(cfg, rlg_config_dict)
 
-    observers = [RLGPUAlgoObserver()]
+    observers = [RLGPUEnvAlgoObserver()]
 
     if cfg.pbt.enabled:
         pbt_observer = PbtAlgoObserver(cfg)
