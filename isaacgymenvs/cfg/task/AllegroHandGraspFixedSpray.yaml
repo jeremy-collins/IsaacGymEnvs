@@ -65,6 +65,7 @@ env:
     assetFileNameBottle: "urdf/objects/bottle/mobility.urdf"
     assetFileNamePillBottle: "urdf/objects/pill_bottle/mobility.urdf"
     assetFileNameSprayBottle: "urdf/objects/spray_bottle/mobility.urdf"
+    assetFileNameSprayBottle2: "urdf/objects/spray_bottle2/mobility.urdf"
     assetFileNameDispenser: "urdf/objects/dispenser/mobility.urdf"
 
 task:

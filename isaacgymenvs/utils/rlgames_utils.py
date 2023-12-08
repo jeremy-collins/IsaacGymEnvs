@@ -234,6 +234,7 @@ class RLGPUEnvAlgoObserver(RLGPUAlgoObserver):
         }
 
     def process_infos(self, infos, done_indices):
+        super().process_infos(infos, done_indices)
         for k, v in filter(lambda kv: kv[0] in self.score_keys, infos.items()):
                 final_v = v[done_indices]
                 if final_v.shape[0] > 0:

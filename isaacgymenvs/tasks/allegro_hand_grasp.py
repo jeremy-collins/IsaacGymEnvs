@@ -36,6 +36,8 @@ from isaacgym.torch_utils import *
 
 from .base.vec_task import VecTask
 
+SUPPORTED_PARTNET_OBJECTS = ["dispenser", "spray_bottle", "pill_bottle", "bottle", "spray_bottle2", "spray_bottle3"]
+
 
 class AllegroHandGrasp(VecTask):
     def __init__(
@@ -95,15 +97,16 @@ class AllegroHandGrasp(VecTask):
         self.load_default_pos = self.cfg["env"].get("load_default_pos", False)
 
         self.object_type = self.cfg["env"]["objectType"]
-        assert self.object_type in [
-            "block",
-            "egg",
-            "pen",
-            "bottle",
-            "dispenser",
-            "spray_bottle",
-            "pill_bottle",
-        ]
+        self.fix_object_base = self.cfg["env"].get("fixObjectBase", True)
+        assert (
+            self.object_type
+            in [
+                "block",
+                "egg",
+                "pen",
+            ]
+            + SUPPORTED_PARTNET_OBJECTS
+        )
 
         self.ignore_z = self.object_type == "pen"
 
@@ -111,13 +114,13 @@ class AllegroHandGrasp(VecTask):
             "block": "urdf/objects/cube_multicolor.urdf",
             "egg": "mjcf/open_ai_assets/hand/egg.xml",
             "pen": "mjcf/open_ai_assets/hand/pen.xml",
-            "bottle": "urdf/objects/bottle/mobility.urdf",
-            "spray_bottle": "urdf/objects/spray_bottle/mobility.urdf",
-            "pill_bottle": "urdf/objects/pill_bottle/mobility.urdf",
-            "dispenser": "urdf/objects/dispenser/mobility.urdf",
         }
+        for obj in SUPPORTED_PARTNET_OBJECTS:
+            self.asset_files_dict[obj] = f"urdf/objects/{obj}.urdf"
 
         assert "asset" in self.cfg["env"], "no asset section in config file"
+
+        # update asset file paths
         self.asset_files_dict["block"] = self.cfg["env"]["asset"].get(
             "assetFileNameBlock", self.asset_files_dict["block"]
         )
@@ -159,7 +162,10 @@ class AllegroHandGrasp(VecTask):
             num_states = 109  # TODO: distinguish returned state vs observation
 
         assert self.cfg["env"]["numActions"] in [17, 22]  # 22  # 16 hand dof + 1 ee position
-        self.cfg["env"]["numObservations"] = self.num_obs_dict[self.obs_type]
+        if self.cfg["env"]["numActions"] == 22:  # 22  # 16 hand dof + 1 ee position
+            self.cfg["env"]["numObservations"] = self.num_obs_dict[self.obs_type] = 109
+        else:
+            self.cfg["env"]["numObservations"] = self.num_obs_dict[self.obs_type]
         self.cfg["env"]["numStates"] = num_states
 
         super().__init__(
@@ -348,11 +354,13 @@ class AllegroHandGrasp(VecTask):
 
         # load manipulated object and goal assets
         object_asset_options = gymapi.AssetOptions()
-        object_asset_options.fix_base_link = True
+        object_asset_options.fix_base_link = self.fix_object_base
         self.object_asset = object_asset = self.gym.load_asset(
             self.sim, asset_root, object_asset_file, object_asset_options
         )
         object_dof_props = self.gym.get_asset_dof_properties(object_asset)
+        # DO NOT UNCOMMENT: for debugging purposes only
+        # object_dof_props["driveMode"] = 1
 
         if self.object_type in ["dispenser", "spray_bottle", "pill_bottle", "bottle"]:
             self.num_object_dofs = self.gym.get_asset_dof_count(object_asset)
@@ -384,9 +392,13 @@ class AllegroHandGrasp(VecTask):
 
         object_start_pose = gymapi.Transform()
         object_start_pose.p = gymapi.Vec3()
-        object_start_pose.p.x = -0.12
-        object_start_pose.p.y = -0.08
-        object_start_pose.p.z = 0.124
+        if "start_pose.npz" in os.listdir(os.path.join(asset_root, os.path.dirname(object_asset_file))):
+            start_pose = np.load(os.path.join(asset_root, os.path.dirname(object_asset_file), "start_pose.npz"))
+            object_start_pose.p = gymapi.Vec3(*start_pose["pos"])
+        else:
+            object_start_pose.p.x = -0.12
+            object_start_pose.p.y = -0.08
+            object_start_pose.p.z = 0.124
         object_start_pose.r.w = 1.0
         object_start_pose.r.x = 0.0
         object_start_pose.r.y = 0.0
@@ -420,17 +432,18 @@ class AllegroHandGrasp(VecTask):
         max_agg_shapes = self.num_shadow_hand_shapes + 2
 
         self.shadow_hands = []
+        self.object_actor_handles = []
         self.envs = []
 
         self.object_init_state = []
         self.hand_start_states = []
 
         self.hand_indices = []
-        self.fingertip_indices = []
         self.object_indices = []
         self.goal_object_indices = []
 
-        # self.fingertip_handles = [self.gym.find_asset_rigid_body_index(shadow_hand_asset, name) for name in self.fingertips]
+        self.fingertips = list(filter(lambda x: x.endswith('link_3'), self.gym.get_asset_rigid_body_dict(allegro_hand_asset).keys()))
+        self.fingertip_indices = [self.gym.find_asset_rigid_body_index(allegro_hand_asset, name) for name in self.fingertips]
         self.object_rb_count = self.gym.get_asset_rigid_body_count(object_asset)
         self.shadow_hand_rb_handles = list(range(self.num_shadow_hand_bodies))
         self.object_rb_handles = list(
@@ -483,7 +496,8 @@ class AllegroHandGrasp(VecTask):
             #     self.gym.enable_actor_dof_force_sensors(env_ptr, shadow_hand_actor)
 
             # add object
-            object_handle = self.gym.create_actor(env_ptr, object_asset, object_start_pose, "object", i, 0, 0)
+            object_handle = self.gym.create_actor(env_ptr, object_asset, object_start_pose, "object", i, 0, 1)
+            self.object_actor_handles.append(object_handle)
             rb_props = self.gym.get_actor_rigid_body_properties(env_ptr, object_handle)
             rb_props[0].mass = 10
             # if self.object_type == "spray_bottle":
@@ -517,7 +531,7 @@ class AllegroHandGrasp(VecTask):
                 "goal_object",
                 i + self.num_envs,
                 0,
-                0,
+                1,
             )
             goal_object_idx = self.gym.get_actor_index(env_ptr, goal_handle, gymapi.DOMAIN_SIM)
             self.goal_object_indices.append(goal_object_idx)
@@ -555,11 +569,11 @@ class AllegroHandGrasp(VecTask):
         self.goal_init_state = self.goal_states.clone()
         self.hand_start_states = to_torch(self.hand_start_states, device=self.device).view(self.num_envs, 13)
 
-        # self.fingertip_handles = to_torch(self.fingertip_handles, dtype=torch.long, device=self.device)
         self.shadow_hand_rb_handles = to_torch(self.shadow_hand_rb_handles, dtype=torch.long, device=self.device)
         self.object_rb_handles = to_torch(self.object_rb_handles, dtype=torch.long, device=self.device)
         self.object_rb_masses = to_torch(self.object_rb_masses, dtype=torch.float, device=self.device)
 
+        self.fingertip_indices = to_torch(self.fingertip_indices, dtype=torch.long, device=self.device)
         self.hand_indices = to_torch(self.hand_indices, dtype=torch.long, device=self.device)
         self.object_indices = to_torch(self.object_indices, dtype=torch.long, device=self.device)
         self.goal_object_indices = to_torch(self.goal_object_indices, dtype=torch.long, device=self.device)
@@ -585,6 +599,7 @@ class AllegroHandGrasp(VecTask):
             self.goal_pos,
             self.goal_dof_pos,
             self.hand_pos,
+            self.fingertip_pos,
             self.dist_reward_scale,
             self.task_reward_scale,
             self.rot_eps,
@@ -602,10 +617,13 @@ class AllegroHandGrasp(VecTask):
         self.extras["consecutive_successes"] = self.consecutive_successes.mean()
         self.extras["goal_dist"] = torch.norm(self.object_pos - self.goal_pos, p=2, dim=-1)
         self.extras["hand_dist"] = torch.norm(self.hand_pos - self.object_pos, p=2, dim=-1)
+        self.extras["fingertip_dist"] = torch.norm(self.fingertip_pos - self.object_pos.unsqueeze(1), p=2, dim=-1).sum(-1)
+        self.extras["full_hand_dist"] = self.extras['hand_dist'] + self.extras['fingertip_dist']
 
         self.extras["task_dist"] = (
-            self.goal_dof_pos - self.object_dof_pos[:, self.object_target_dof_idx]
-        ).flatten()
+            (self.goal_dof_pos - self.object_dof_pos[:, self.object_target_dof_idx]).abs().flatten()
+        )
+        self.extras["success"] = self.successes
         if self.print_success_stat:
             self.total_resets = self.total_resets + self.reset_buf.sum()
             direct_average_successes = self.total_successes + self.successes.sum()
@@ -636,6 +654,10 @@ class AllegroHandGrasp(VecTask):
         self.hand_pos = self.hand_pose_vel[:, 0:3]
         self.hand_rot = self.hand_pose_vel[:, 3:7]
         self.hand_linvel = self.hand_pose_vel[:, 7:10]
+        self.fingertip_pose_vel = self.rigid_body_states[:, self.fingertip_indices][:, :, 0:10]  # n_envs x 4 x 10
+        self.fingertip_pos = self.fingertip_pose_vel[:, :, 0:3]
+        self.fingertip_rot = self.fingertip_pose_vel[:, :, 3:7]
+        self.fingertip_vel = self.fingertip_pose_vel[:, :, 7:10]
 
         # self.object_dof_pos = self.object_dof_state[..., 0]
         # self.object_dof_vel = self.object_dof_state[..., 1]
@@ -645,13 +667,38 @@ class AllegroHandGrasp(VecTask):
         self.object_linvel = self.root_state_tensor[self.object_indices, 7:10]
         self.object_angvel = self.root_state_tensor[self.object_indices, 10:13]
 
+        # for env, handle in zip(self.envs, self.object_actor_handles):
+        #     joint_handle = self.gym.get_joint_handle(env, "object", self.object_target_dof_name)
+        #     self.gym.set_joint_target_position(env, joint_handle, self.object_target_dof_pos)
+        # self.prev_targets[:, self.num_shadow_hand_dofs:self.num_dofs_with_object] = self.object_target_dof_pos
+        # assert self.gym.set_dof_position_target_tensor_indexed(
+        #         self.sim,
+        #         gymtorch.unwrap_tensor(self.prev_targets),
+        #         gymtorch.unwrap_tensor(self.object_indices.to(torch.int32)),
+        #         len(self.object_indices))
+        # self.dof_state.view(self.num_envs, -1, 2)[:, self.num_shadow_hand_dofs:self.num_dofs_with_object, 0] = self.object_target_dof_pos
+        # assert self.gym.set_dof_state_tensor_indexed(
+        #     self.sim,
+        #     gymtorch.unwrap_tensor(self.dof_state),
+        #     gymtorch.unwrap_tensor(self.object_indices.to(torch.int32)),
+        #     len(self.object_indices),
+        #     )
+        # for env, handle in zip(self.envs, self.object_actor_handles):
+        #     joint_handle = self.gym.get_joint_handle(env, "object", self.object_target_dof_name)
+        #     self.gym.set_joint_target_position(env, joint_handle, self.object_target_dof_pos)
+
+        # if current time in seconds is divisible by 5, print object dof state
+        # import time
+        # current_time = int(time.time())
+        # if current_time % 10 == 0:
+        # print("object dof pos: ", self.gym.get_vec_actor_dof_states(self.envs, self.object_actor_handles[0], gymapi.STATE_POS))
+
         self.goal_pose = self.object_init_state[:, :7]
         self.goal_pos = self.goal_pose[:, 0:3]
-        self.goal_dof_pos = torch.ones_like(self.object_dof_state[:, self.object_target_dof_idx, 0]) * self.object_target_dof_pos
+        self.goal_dof_pos = (
+            torch.ones_like(self.object_dof_state[:, self.object_target_dof_idx, 0]) * self.object_target_dof_pos
+        )
         self.goal_rot = self.goal_states[:, 3:7]
-
-        # self.fingertip_state = self.rigid_body_states[:, self.fingertip_handles][:, :, 0:13]
-        # self.fingertip_pos = self.rigid_body_states[:, self.fingertip_handles][:, :, 0:3]
 
         if self.obs_type == "full_no_vel":
             self.compute_full_observations(True)
@@ -680,19 +727,19 @@ class AllegroHandGrasp(VecTask):
             self.obs_buf[:, start_idx + 3 : start_idx + 6] = self.goal_pos
             start_idx += 6
 
-            # obj cur and goal dof pos: 23 + 2 = 25
+            # obj cur and goal dof pos: 23 + 1 = 24
             self.obs_buf[:, start_idx : start_idx + 1] = self.object_dof_pos[:, self.object_target_dof_idx].unsqueeze(
                 -1
             )
             self.obs_buf[:, start_idx + 1 : start_idx + 2] = self.goal_dof_pos.unsqueeze(-1)
             start_idx += 2
 
-            # hand palm pos: 25 + 7 = 32
+            # hand palm pos: 24 + 7 = 31
             self.obs_buf[:, start_idx : start_idx + 3] = self.hand_pos
             self.obs_buf[:, start_idx + 3 : start_idx + 7] = self.hand_rot
             start_idx += 7
 
-            # hand joint actions: 32 + 17 = 49
+            # hand joint actions: 31 + 17 = 48
             self.obs_buf[:, start_idx : start_idx + self.num_actions] = self.actions
             start_idx += self.num_actions
         else:
@@ -827,6 +874,173 @@ class AllegroHandGrasp(VecTask):
                 "error in stacking observation dims, expected {} dims but got {}".format(expected_dim, obs_total)
             )
 
+    def compute_full_observations_new(self, no_vel=False):
+        obs_dict = {}
+
+        # hand joint positions
+        obs_dict["hand_joint_pos"] = unscale(
+            self.shadow_hand_dof_pos,
+            self.shadow_hand_dof_lower_limits,
+            self.shadow_hand_dof_upper_limits,
+        )
+
+        if no_vel:
+            # object and goal positions
+            obs_dict["object_pos"] = self.object_pos
+            obs_dict["goal_pos"] = self.goal_pos
+
+            # object and goal dof positions
+            obs_dict["object_dof_pos"] = self.object_dof_pos[:, self.object_target_dof_idx].unsqueeze(-1)
+            obs_dict["goal_dof_pos"] = self.goal_dof_pos.unsqueeze(-1)
+
+            # hand palm position and rotation
+            obs_dict["hand_palm_pos"] = self.hand_pos
+            obs_dict["hand_palm_rot"] = self.hand_rot
+
+            # hand joint actions
+            obs_dict["hand_actions"] = self.actions
+
+            # create observation key list for no velocity case
+            obs_keys_no_vel = [
+                "hand_joint_pos",
+                "object_pos",
+                "goal_pos",
+                "object_dof_pos",
+                "goal_dof_pos",
+                "hand_palm_pos",
+                "hand_palm_rot",
+                "hand_actions",
+            ]
+        else:
+            # hand joint velocities
+            obs_dict["hand_joint_vel"] = self.vel_obs_scale * self.shadow_hand_dof_vel
+
+            # object pose, linear and angular velocities
+            obs_dict["object_pose"] = self.object_pose
+            obs_dict["object_linvel"] = self.object_linvel
+            obs_dict["object_angvel"] = self.vel_obs_scale * self.object_angvel
+
+            # object and goal dof positions
+            obs_dict["object_dof_pos"] = self.object_dof_pos[:, self.object_target_dof_idx].unsqueeze(-1)
+            obs_dict["goal_dof_pos"] = self.goal_dof_pos.unsqueeze(-1)
+
+            # hand palm position and linear velocity
+            obs_dict["hand_palm_pos"] = self.hand_pos
+            obs_dict["hand_palm_linvel"] = self.hand_linvel
+
+            # hand joint actions
+            obs_dict["hand_actions"] = self.actions
+
+            # create observation key list for velocity case
+            obs_keys_vel = [
+                "hand_joint_pos",
+                "hand_joint_vel",
+                "object_pose",
+                "object_linvel",
+                "object_angvel",
+                "object_dof_pos",
+                "goal_dof_pos",
+                "hand_palm_pos",
+                "hand_palm_linvel",
+                "hand_actions",
+            ]
+
+        # stack observations in buffer
+        start_idx = 0
+        for key in obs_keys_no_vel if no_vel else obs_keys_vel:
+            end_idx = start_idx + obs_dict[key].shape[1]
+            self.obs_buf[:, start_idx:end_idx] = obs_dict[key]
+            start_idx = end_idx
+
+        expected_dim = self.num_obs_dict[self.obs_type]
+        if start_idx != expected_dim:
+            raise AssertionError(
+                "error in stacking observation dims, expected {} dims but got {}".format(expected_dim, start_idx)
+            )
+
+    def compute_full_state_new(self, asymm_obs=False):
+        state_dict = {}
+        state_keys_asymm_obs = []
+        state_keys_no_asymm_obs = []
+
+        # Hand DOF positions and velocities
+        state_dict["hand_dof_pos"] = unscale(
+            self.shadow_hand_dof_pos,
+            self.shadow_hand_dof_lower_limits,
+            self.shadow_hand_dof_upper_limits,
+        )
+        state_dict["hand_dof_vel"] = self.vel_obs_scale * self.shadow_hand_dof_vel
+        state_dict["hand_force_torque"] = self.force_torque_obs_scale * self.dof_force_tensor
+
+        # Hand palm position and linear velocity
+        state_dict["hand_palm_pos"] = self.hand_pos
+        state_dict["hand_palm_linvel"] = self.hand_linvel
+
+        # Object pose and velocities
+        state_dict["object_pose"] = self.object_pose
+        state_dict["object_linvel"] = self.object_linvel
+        state_dict["object_angvel"] = self.vel_obs_scale * self.object_angvel
+
+        # Object and goal dof positions
+        state_dict["object_dof_pos"] = self.object_dof_pos[:, self.object_target_dof_idx].unsqueeze(-1)
+        state_dict["goal_dof_pos"] = self.goal_dof_pos.unsqueeze(-1)
+
+        # Actions
+        if hasattr(self, "actions"):
+            state_dict["actions"] = self.actions
+        else:
+            state_dict["actions"] = torch.zeros(self.num_actions, device=self.actions.device)
+
+        # Assemble keys for state dict
+        state_keys_asymm_obs.extend(
+            [
+                "hand_dof_pos",
+                "hand_dof_vel",
+                "hand_force_torque",
+                "hand_palm_pos",
+                "hand_palm_linvel",
+                "object_pose",
+                "object_linvel",
+                "object_angvel",
+                "object_dof_pos",
+                "goal_dof_pos",
+                "actions",
+            ]
+        )
+
+        state_keys_no_asymm_obs.extend(
+            [
+                "hand_dof_pos",
+                "hand_dof_vel",
+                "hand_force_torque",
+                "hand_palm_pos",
+                "hand_palm_linvel",
+                "object_pose",
+                "object_linvel",
+                "object_angvel",
+                "object_dof_pos",
+                "goal_dof_pos",
+                "actions",
+            ]
+        )
+
+        # Stack states in buffer
+        start_idx = 0
+        state_keys = state_keys_asymm_obs if asymm_obs else state_keys_no_asymm_obs
+        for key in state_keys:
+            end_idx = start_idx + state_dict[key].shape[1]
+            if asymm_obs:
+                self.states_buf[:, start_idx:end_idx] = state_dict[key]
+            else:
+                self.obs_buf[:, start_idx:end_idx] = state_dict[key]
+            start_idx = end_idx
+
+        expected_dim = self.num_obs_dict[self.obs_type]
+        if start_idx != expected_dim:
+            raise AssertionError(
+                "error in stacking observation dims, expected {} dims but got {}".format(expected_dim, start_idx)
+            )
+
     def _reset_done(self):
         # overrides VecTask.reset_done to include goal_env_ids when calling reset_idx
         env_ids = self.reset_buf.nonzero(as_tuple=False).flatten()
@@ -837,7 +1051,7 @@ class AllegroHandGrasp(VecTask):
 
         # asymmetric actor-critic
         if self.num_states > 0:
-            self.obs_dict["states"] = self.get_state()
+            self.obs_dict["states"] = self.get_full_state()
 
         return self.obs_dict, env_ids
 
@@ -853,14 +1067,22 @@ class AllegroHandGrasp(VecTask):
         self.root_state_tensor[self.goal_object_indices[env_ids], 3:7] = self.goal_states[env_ids, 3:7]
 
         # reset goal task pose
-        self.goal_dof_state[env_ids, :] = self.object_target_dof_pos  # TODO: resample goal dof state
+        if isinstance(self.object_target_dof_pos, torch.Tensor) and len(self.object_target_dof_pos) > 1:
+            self.goal_dof_state[env_ids, :, 0] = self.object_target_dof_pos.repeat(
+                len(env_ids) // len(self.object_target_dof_pos)
+            ).unsqueeze(-1)
+        else:
+            self.goal_dof_state[env_ids, :, 0] = self.object_target_dof_pos  # TODO: resample goal dof state
         goal_indices = self.goal_object_indices[env_ids].to(torch.int32)
-        # self.gym.set_dof_position_target_tensor_indexed(
-        #     self.sim,
-        #     gymtorch.unwrap_tensor(self.goal_dof_state[env_ids, :, 0:1]),
-        #     gymtorch.unwrap_tensor(goal_indices),
-        #     len(env_ids),
-        # )
+        self.prev_targets[
+            :, self.num_dofs_with_object : self.num_dofs_with_object + self.num_object_dofs
+        ] = self.object_target_dof_pos
+        self.gym.set_dof_position_target_tensor_indexed(
+            self.sim,
+            gymtorch.unwrap_tensor(self.prev_targets),
+            gymtorch.unwrap_tensor(goal_indices),
+            len(env_ids),
+        )
         self.gym.set_dof_state_tensor_indexed(
             self.sim,
             gymtorch.unwrap_tensor(self.dof_state),
@@ -1064,9 +1286,9 @@ class AllegroHandGrasp(VecTask):
             for i in range(self.num_envs):
                 targetx = (
                     (
-                        self.goal_pos[i]
+                        self.hand_pos[i]
                         + quat_apply(
-                            self.goal_rot[i],
+                            self.hand_rot[i],
                             to_torch([1, 0, 0], device=self.device) * 0.2,
                         )
                     )
@@ -1075,9 +1297,9 @@ class AllegroHandGrasp(VecTask):
                 )
                 targety = (
                     (
-                        self.goal_pos[i]
+                        self.hand_pos[i]
                         + quat_apply(
-                            self.goal_rot[i],
+                            self.hand_rot[i],
                             to_torch([0, 1, 0], device=self.device) * 0.2,
                         )
                     )
@@ -1086,9 +1308,9 @@ class AllegroHandGrasp(VecTask):
                 )
                 targetz = (
                     (
-                        self.goal_pos[i]
+                        self.hand_pos[i]
                         + quat_apply(
-                            self.goal_rot[i],
+                            self.hand_rot[i],
                             to_torch([0, 0, 1], device=self.device) * 0.2,
                         )
                     )
@@ -1096,7 +1318,7 @@ class AllegroHandGrasp(VecTask):
                     .numpy()
                 )
 
-                p0 = self.goal_pos[i].cpu().numpy() + self.goal_displacement_tensor.cpu().numpy()
+                p0 = self.hand_pos[i].cpu().numpy() # + self.goal_displacement_tensor.cpu().numpy()
                 self.gym.add_lines(
                     self.viewer,
                     self.envs[i],
@@ -1119,62 +1341,128 @@ class AllegroHandGrasp(VecTask):
                     [0.1, 0.1, 0.85],
                 )
 
-                objectx = (
-                    (
-                        self.object_pos[i]
-                        + quat_apply(
-                            self.object_rot[i],
-                            to_torch([1, 0, 0], device=self.device) * 0.2,
-                        )
-                    )
-                    .cpu()
-                    .numpy()
-                )
-                objecty = (
-                    (
-                        self.object_pos[i]
-                        + quat_apply(
-                            self.object_rot[i],
-                            to_torch([0, 1, 0], device=self.device) * 0.2,
-                        )
-                    )
-                    .cpu()
-                    .numpy()
-                )
-                objectz = (
-                    (
-                        self.object_pos[i]
-                        + quat_apply(
-                            self.object_rot[i],
-                            to_torch([0, 0, 1], device=self.device) * 0.2,
-                        )
-                    )
-                    .cpu()
-                    .numpy()
-                )
+            # for i in range(self.num_envs):
+            #     targetx = (
+            #         (
+            #             self.goal_pos[i]
+            #             + quat_apply(
+            #                 self.goal_rot[i],
+            #                 to_torch([1, 0, 0], device=self.device) * 0.2,
+            #             )
+            #         )
+            #         .cpu()
+            #         .numpy()
+            #     )
+            #     targety = (
+            #         (
+            #             self.goal_pos[i]
+            #             + quat_apply(
+            #                 self.goal_rot[i],
+            #                 to_torch([0, 1, 0], device=self.device) * 0.2,
+            #             )
+            #         )
+            #         .cpu()
+            #         .numpy()
+            #     )
+            #     targetz = (
+            #         (
+            #             self.goal_pos[i]
+            #             + quat_apply(
+            #                 self.goal_rot[i],
+            #                 to_torch([0, 0, 1], device=self.device) * 0.2,
+            #             )
+            #         )
+            #         .cpu()
+            #         .numpy()
+            #     )
 
-                p0 = self.object_pos[i].cpu().numpy()
-                self.gym.add_lines(
-                    self.viewer,
-                    self.envs[i],
-                    1,
-                    [p0[0], p0[1], p0[2], objectx[0], objectx[1], objectx[2]],
-                    [0.85, 0.1, 0.1],
-                )
-                self.gym.add_lines(
-                    self.viewer,
-                    self.envs[i],
-                    1,
-                    [p0[0], p0[1], p0[2], objecty[0], objecty[1], objecty[2]],
-                    [0.1, 0.85, 0.1],
-                )
-                self.gym.add_lines(
-                    self.viewer,
-                    self.envs[i],
-                    1,
-                    [p0[0], p0[1], p0[2], objectz[0], objectz[1], objectz[2]],
-                    [0.1, 0.1, 0.85],
-                )
+            #     p0 = self.goal_pos[i].cpu().numpy() + self.goal_displacement_tensor.cpu().numpy()
+            #     self.gym.add_lines(
+            #         self.viewer,
+            #         self.envs[i],
+            #         1,
+            #         [p0[0], p0[1], p0[2], targetx[0], targetx[1], targetx[2]],
+            #         [0.85, 0.1, 0.1],
+            #     )
+            #     self.gym.add_lines(
+            #         self.viewer,
+            #         self.envs[i],
+            #         1,
+            #         [p0[0], p0[1], p0[2], targety[0], targety[1], targety[2]],
+            #         [0.1, 0.85, 0.1],
+            #     )
+            #     self.gym.add_lines(
+            #         self.viewer,
+            #         self.envs[i],
+            #         1,
+            #         [p0[0], p0[1], p0[2], targetz[0], targetz[1], targetz[2]],
+            #         [0.1, 0.1, 0.85],
+            #     )
+
+            #     objectx = (
+            #         (
+            #             self.object_pos[i]
+            #             + quat_apply(
+            #                 self.object_rot[i],
+            #                 to_torch([1, 0, 0], device=self.device) * 0.2,
+            #             )
+            #         )
+            #         .cpu()
+            #         .numpy()
+            #     )
+            #     objecty = (
+            #         (
+            #             self.object_pos[i]
+            #             + quat_apply(
+            #                 self.object_rot[i],
+            #                 to_torch([0, 1, 0], device=self.device) * 0.2,
+            #             )
+            #         )
+            #         .cpu()
+            #         .numpy()
+            #     )
+            #     objectz = (
+            #         (
+            #             self.object_pos[i]
+            #             + quat_apply(
+            #                 self.object_rot[i],
+            #                 to_torch([0, 0, 1], device=self.device) * 0.2,
+            #             )
+            #         )
+            #         .cpu()
+            #         .numpy()
+            #     )
+
+            #     p0 = self.object_pos[i].cpu().numpy()
+            #     self.gym.add_lines(
+            #         self.viewer,
+            #         self.envs[i],
+            #         1,
+            #         [p0[0], p0[1], p0[2], objectx[0], objectx[1], objectx[2]],
+            #         [0.85, 0.1, 0.1],
+            #     )
+            #     self.gym.add_lines(
+            #         self.viewer,
+            #         self.envs[i],
+            #         1,
+            #         [p0[0], p0[1], p0[2], objecty[0], objecty[1], objecty[2]],
+            #         [0.1, 0.85, 0.1],
+            #     )
+            #     self.gym.add_lines(
+            #         self.viewer,
+            #         self.envs[i],
+            #         1,
+            #         [p0[0], p0[1], p0[2], objectz[0], objectz[1], objectz[2]],
+            #         [0.1, 0.1, 0.85],
+            #     )
+
+    def _check_success(self):
+        task_dist = self.extras["task_dist"]
+        return torch.where(
+            torch.abs(task_dist) <= self.success_tolerance,
+            torch.ones_like(self.reset_goal_buf),
+            torch.zeros_like(self.reset_goal_buf),
+        )
 
 
 class AllegroHandGraspMultiTask(AllegroHandGrasp):
@@ -1262,11 +1550,9 @@ class AllegroHandGraspMultiTask(AllegroHandGrasp):
             "block": "urdf/objects/cube_multicolor.urdf",
             "egg": "mjcf/open_ai_assets/hand/egg.xml",
             "pen": "mjcf/open_ai_assets/hand/pen.xml",
-            "bottle": "urdf/objects/bottle/mobility.urdf",
-            "spray_bottle": "urdf/objects/spray_bottle/mobility.urdf",
-            "pill_bottle": "urdf/objects/pill_bottle/mobility.urdf",
-            "dispenser": "urdf/objects/dispenser/mobility.urdf",
         }
+        for obj in SUPPORTED_PARTNET_OBJECTS:
+            self.asset_files_dict[obj] = "urdf/objects/{}.urdf".format(obj)
 
         if "asset" in self.cfg["env"]:
             self.asset_files_dict["block"] = self.cfg["env"]["asset"].get(
@@ -1291,13 +1577,13 @@ class AllegroHandGraspMultiTask(AllegroHandGrasp):
                 "assetFileNamePillBottle", self.asset_files_dict["pill_bottle"]
             )
 
-            # can be "full_no_vel", "full", "full_state"
-            self.obs_type = self.cfg["env"]["observationType"]
+        # can be "full_no_vel", "full", "full_state"
+        self.obs_type = self.cfg["env"]["observationType"]
 
-            if not (self.obs_type in ["full_no_vel", "full", "full_state"]):
-                raise Exception(
-                    "Unknown type of observations!\nobservationType should be one of: [openai, full_no_vel, full, full_state]"
-                )
+        if not (self.obs_type in ["full_no_vel", "full", "full_state"]):
+            raise Exception(
+                "Unknown type of observations!\nobservationType should be one of: [openai, full_no_vel, full, full_state]"
+            )
 
         print("Obs type:", self.obs_type)
 
@@ -1489,6 +1775,8 @@ class AllegroHandGraspMultiTask(AllegroHandGrasp):
         # load manipulated object and goal assets
         object_asset_options = gymapi.AssetOptions()
         object_asset_options.fix_base_link = self.fix_object_base
+        # DO NOT UNCOMMENT, for debugging purposes
+        # object_asset_options.default_dof_drive_mode = gymapi.DOF_MODE_POS
         goal_object_asset_options = gymapi.AssetOptions()
         goal_object_asset_options.fix_base_link = True
         object_assets = []
@@ -1507,7 +1795,7 @@ class AllegroHandGraspMultiTask(AllegroHandGrasp):
             object_dof_props = self.gym.get_asset_dof_properties(object_asset)
 
             # TODO: expand this list to include full set of operable object types
-            if object_type in ["dispenser", "spray_bottle", "pill_bottle", "bottle"]:
+            if object_type in SUPPORTED_PARTNET_OBJECTS:
                 num_object_dofs.append(self.gym.get_asset_dof_count(object_asset))
                 object_dof_indices.append(self.gym.get_asset_dof_dict(object_asset)[self.object_target_dof_name[i]])
             else:
@@ -1518,10 +1806,10 @@ class AllegroHandGraspMultiTask(AllegroHandGrasp):
         assert all([num_object_dof == 1 for num_object_dof in num_object_dofs]), "Only one DOF objects supported!"
         self.num_object_dofs = 1
 
-        # if self.object_stiffness:
-        #     object_dof_props["stiffness"][self.object_target_dof_idx] = self.object_stiffness
-        # if self.object_damping:
-        #     object_dof_props["damping"][self.object_target_dof_idx] = self.object_damping
+        if self.object_stiffness:
+            object_dof_props["stiffness"][self.object_target_dof_idx] = self.object_stiffness
+        if self.object_damping:
+            object_dof_props["damping"][self.object_target_dof_idx] = self.object_damping
 
         self.num_dofs_with_object = self.num_shadow_hand_dofs + self.num_object_dofs
 
@@ -1638,12 +1926,11 @@ class AllegroHandGraspMultiTask(AllegroHandGrasp):
             # add object
             object_asset = object_assets[i % len(object_assets)]
             goal_asset = goal_assets[i % len(goal_assets)]
-            object_handle = self.gym.create_actor(env_ptr, object_asset, object_start_pose, "object", i, 0, 0)
+            object_handle = self.gym.create_actor(env_ptr, object_asset, object_start_pose, "object", i, 0, 1)
             object_handles.append(object_handle)
             # if self.object_type == "spray_bottle":
             #     self.gym.set_actor_scale(env_ptr, object_handle, 0.5)
             if i <= len(object_assets) - 1:
-
                 object_rb_props = [
                     self.gym.get_actor_rigid_body_properties(env_ptr, object_handle) for object_handle in object_handles
                 ]
@@ -1653,7 +1940,7 @@ class AllegroHandGraspMultiTask(AllegroHandGrasp):
 
                 for object_rb_handle, rb_props in zip(object_handles, object_rb_props):
                     assert self.gym.set_actor_rigid_body_properties(env_ptr, object_rb_handle, rb_props, True)
-                
+
             self.object_init_state.append(
                 [
                     object_start_pose.p.x,
@@ -1682,7 +1969,7 @@ class AllegroHandGraspMultiTask(AllegroHandGrasp):
                 "goal_object",
                 i + self.num_envs,
                 0,
-                0,
+                1,  # disable self-collision
             )
             goal_object_idx = self.gym.get_actor_index(env_ptr, goal_handle, gymapi.DOMAIN_SIM)
             self.goal_object_indices.append(goal_object_idx)
@@ -1852,6 +2139,10 @@ class AllegroHandGraspMultiTask(AllegroHandGrasp):
         self.hand_pos = self.hand_pose_vel[:, 0:3]
         self.hand_rot = self.hand_pose_vel[:, 3:7]
         self.hand_linvel = self.hand_pose_vel[:, 7:10]
+        self.fingertip_pose_vel = self.rigid_body_states[:, self.fingertip_handles, 0:10]
+        self.fingertip_pos = self.fingertip_pose_vel[:, :, 0:3]
+        self.fingertip_rot = self.fingertip_pose_vel[:, :, 3:7]
+        self.fingertip_linvel = self.fingertip_pose_vel[:, :, 7:10]
 
         self.object_pose = self.root_state_tensor[self.object_indices, 0:7]
         self.object_pos = self.root_state_tensor[self.object_indices, 0:3]
@@ -1859,13 +2150,19 @@ class AllegroHandGraspMultiTask(AllegroHandGrasp):
         self.object_linvel = self.root_state_tensor[self.object_indices, 7:10]
         self.object_angvel = self.root_state_tensor[self.object_indices, 10:13]
 
+        # if current time in seconds is divisible by 5, print object dof state
+        # import time
+        # current_time = int(time.time())
+        # if current_time % 5 == 0:
+        #     print("object dof pos: ", self.object_dof_pos)
+
         self.goal_pose = self.object_init_state[:, :7]
         self.goal_pos = self.goal_pose[:, 0:3]
-        self.goal_dof_pos = torch.ones_like(self.object_dof_state[:, self.object_target_dof_idx, 0]) * self.object_target_dof_pos.repeat(self.num_envs // len(self.object_types), 1).flatten()
+        self.goal_dof_pos = (
+            torch.ones_like(self.object_dof_state[:, self.object_target_dof_idx, 0])
+            * self.object_target_dof_pos.repeat(self.num_envs // len(self.object_types), 1).flatten()
+        )
         self.goal_rot = self.goal_states[:, 3:7]
-
-        # self.fingertip_state = self.rigid_body_states[:, self.fingertip_handles][:, :, 0:13]
-        # self.fingertip_pos = self.rigid_body_states[:, self.fingertip_handles][:, :, 0:3]
 
         if self.obs_type == "full_no_vel":
             self.compute_full_observations(True)
@@ -1900,6 +2197,7 @@ class AllegroHandGraspMultiTask(AllegroHandGrasp):
             self.goal_pos,
             self.goal_dof_pos,
             self.hand_pos,
+            self.fingertip_pos,
             self.dist_reward_scale,
             self.task_reward_scale,
             self.rot_eps,
@@ -1916,8 +2214,14 @@ class AllegroHandGraspMultiTask(AllegroHandGrasp):
 
         self.extras["consecutive_successes"] = self.consecutive_successes.mean()
         self.extras["goal_dist"] = torch.norm(self.object_pos - self.goal_pos, p=2, dim=-1)
+        self.extras["task_dist"] = (
+            (self.goal_dof_pos - self.object_dof_pos[:, self.object_target_dof_idx]).abs().flatten()
+        )
+
         self.extras["hand_dist"] = torch.norm(self.hand_pos - self.object_pos, p=2, dim=-1)
-        self.extras["task_dist"] = (self.goal_dof_pos - self.object_dof_pos[:, self.object_target_dof_idx]).abs().flatten()
+        self.extras["fingertip_dist"] = torch.norm(self.fingertip_pos - self.object_pos.unsqueeze(1), p=2, dim=-1).sum(-1)
+        self.extras["full_hand_dist"] = self.extras['hand_dist'] + self.extras['fingertip_dist']
+
         if self.print_success_stat:
             self.total_resets = self.total_resets + self.reset_buf.sum()
             direct_average_successes = self.total_successes + self.successes.sum()
@@ -1955,6 +2259,7 @@ def compute_hand_reward(
     target_pos,
     task_target_pos,
     hand_pos,
+    fingertip_pos,
     dist_reward_scale: float,
     task_reward_scale: float,
     rot_eps: float,
@@ -1974,6 +2279,8 @@ def compute_hand_reward(
 
     # Distance from the hand to the object
     hand_dist = torch.norm(hand_pos - object_pos, p=2, dim=-1)
+    fingertip_dist = torch.norm(fingertip_pos - object_pos.unsqueeze(1), p=2, dim=-1).sum(dim=-1)
+    hand_dist += fingertip_dist
     # dist_rew += torch.exp(-(hand_dist - 0.05) / fall_dist) * dist_reward_scale / 2
     dist_rew = hand_dist * dist_reward_scale
 
