@@ -1,11 +1,11 @@
-name: SprayBottle6DoFWristSweep
+name: SprayBottle6DoFWristSweepPPOv1
 program: train.py
 method: grid
 project: isaacgymenvs
 entity: krshna
 metric:
-  name: rewards/iter
-  goal: maximize
+  name: scores/task_dist/iter
+  goal: minimize
 parameters:
   task.env.objectType:
     value: "spray_bottle" # can be block, egg or pen
@@ -22,7 +22,7 @@ parameters:
   task.env.objectDofTargetPos:
     value: 0.08
   task.env.actionPenaltyScale:
-    values: [-1e-3,-1e-4,-2e-4]
+    values: [-1e-3,-1e-4]
   task.env.objectMass:
     values: [10,20]
   task.env.fixObjectBase:
@@ -45,6 +45,6 @@ command:
   - ${interpreter}
   - ${program}
   - task=AllegroHandGrasp
-  - train=AllegroHandGraspPPOv2
+  - train=AllegroHandGraspPPO
   - wandb_activate=true
   - ${args_no_hyphens}

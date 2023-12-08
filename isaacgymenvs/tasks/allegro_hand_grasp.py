@@ -363,7 +363,7 @@ class AllegroHandGrasp(VecTask):
         # DO NOT UNCOMMENT: for debugging purposes only
         # object_dof_props["driveMode"] = 1
 
-        if self.object_type in ["dispenser", "spray_bottle", "pill_bottle", "bottle"]:
+        if self.object_type in SUPPORTED_PARTNET_OBJECTS:
             self.num_object_dofs = self.gym.get_asset_dof_count(object_asset)
             self.object_target_dof_idx = self.gym.get_asset_dof_dict(object_asset)[self.object_target_dof_name]
             # if self.object_type == "spray_bottle":
@@ -380,7 +380,8 @@ class AllegroHandGrasp(VecTask):
 
         self.num_dofs_with_object = self.num_shadow_hand_dofs + self.num_object_dofs
 
-        object_asset_options.disable_gravity = False
+        object_asset_options.disable_gravity = True
+        object_asset_options.fix_base_link = True
         goal_asset = self.gym.load_asset(self.sim, asset_root, object_asset_file, object_asset_options)
 
         shadow_hand_start_pose = gymapi.Transform()
