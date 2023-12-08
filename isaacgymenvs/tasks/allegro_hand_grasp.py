@@ -98,6 +98,7 @@ class AllegroHandGrasp(VecTask):
 
         self.object_type = self.cfg["env"]["objectType"]
         self.fix_object_base = self.cfg["env"].get("fixObjectBase", True)
+        self.object_mass = self.cfg["env"].get("objectMass", 10)
         assert (
             self.object_type
             in [
@@ -499,7 +500,7 @@ class AllegroHandGrasp(VecTask):
             object_handle = self.gym.create_actor(env_ptr, object_asset, object_start_pose, "object", i, 0, 1)
             self.object_actor_handles.append(object_handle)
             rb_props = self.gym.get_actor_rigid_body_properties(env_ptr, object_handle)
-            rb_props[0].mass = 10
+            rb_props[0].mass = self.object_mass
             # if self.object_type == "spray_bottle":
             #     self.gym.set_actor_scale(env_ptr, object_handle, 0.5)
             assert self.gym.set_actor_rigid_body_properties(env_ptr, object_handle, rb_props, True)
@@ -1544,6 +1545,7 @@ class AllegroHandGraspMultiTask(AllegroHandGrasp):
         )
 
         self.fix_object_base = self.cfg["env"].get("fixObjectBase", True)
+        self.object_mass = self.cfg["env"].get("objectMass", 10)
         self.ignore_z = [otype == "pen" for otype in self.object_types]
 
         self.asset_files_dict = {
@@ -1935,7 +1937,7 @@ class AllegroHandGraspMultiTask(AllegroHandGrasp):
                     self.gym.get_actor_rigid_body_properties(env_ptr, object_handle) for object_handle in object_handles
                 ]
                 for rb_props in object_rb_props:
-                    rb_props[0].mass = 10
+                    rb_props[0].mass = self.object_mass
                 self.object_rb_masses = [[prop.mass for prop in object_rb_props] for object_rb_props in object_rb_props]
 
                 for object_rb_handle, rb_props in zip(object_handles, object_rb_props):

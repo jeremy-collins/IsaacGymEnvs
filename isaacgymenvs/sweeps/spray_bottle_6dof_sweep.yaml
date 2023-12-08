@@ -1,0 +1,50 @@
+name: SprayBottle6DoFWristSweep
+program: train.py
+method: grid
+project: isaacgymenvs
+entity: krshna
+metric:
+  name: rewards/iter
+  goal: maximize
+parameters:
+  task.env.objectType:
+    value: "spray_bottle" # can be block, egg or pen
+  task.env.asset.assetFileNameSprayBottle:
+    value: "urdf/objects/spray_bottle2/mobility.urdf"
+  task.env.objectDofName:
+    value: "joint_0"
+  task.env.successTolerance:
+    value: 0.005
+  task.env.taskRewardScale:
+    values: [1., 10.]
+  task.env.distRewardScale:
+    values: [-1., -10.]
+  task.env.objectDofTargetPos:
+    value: 0.08
+  task.env.actionPenaltyScale:
+    values: [-1e-3,-1e-4,-2e-4]
+  task.env.objectMass:
+    values: [10,20]
+  task.env.fixObjectBase:
+    value: false
+  num_envs:
+    value: 2048
+  max_iterations:
+    value: 1500
+  experiment:
+    value: SprayBottle6DoFWristSweep
+  headless:
+    value: true
+early_terminate:
+  type: hyperband
+  s: 2
+  eta: 3
+  max_iter: 27
+command:
+  - ${env}
+  - ${interpreter}
+  - ${program}
+  - task=AllegroHandGrasp
+  - train=AllegroHandGraspPPOv2
+  - wandb_activate=true
+  - ${args_no_hyphens}

@@ -20,14 +20,15 @@ class WandbAlgoObserver(AlgoObserver):
         import wandb
 
         wandb_unique_id = f"uid_{experiment_name}"
-        print(f"Wandb using unique id {wandb_unique_id}")
+        if "sweep" not in experiment_name.lower():
+            print(f"Wandb using unique id {wandb_unique_id}")
 
         cfg = self.cfg
 
         # this can fail occasionally, so we try a couple more times
         @retry(3, exceptions=(Exception,))
         def init_wandb():
-            wandb.init(
+            kwargs = dict(
                 project=cfg.wandb_project,
                 entity=cfg.wandb_entity,
                 group=cfg.wandb_group,
@@ -36,18 +37,21 @@ class WandbAlgoObserver(AlgoObserver):
                 id=wandb_unique_id,
                 name=experiment_name,
                 resume=True,
-                settings=wandb.Settings(start_method='fork'),
+                settings=wandb.Settings(start_method="fork"),
             )
-       
+            if "sweep" in experiment_name.lower():
+                kwargs.pop("id")
+            wandb.init(**kwargs)
+
             if cfg.wandb_logcode_dir:
                 wandb.run.log_code(root=cfg.wandb_logcode_dir)
-                print('wandb running directory........', wandb.run.dir)
+                print("wandb running directory........", wandb.run.dir)
 
-        print('Initializing WandB...')
+        print("Initializing WandB...")
         try:
             init_wandb()
         except Exception as exc:
-            print(f'Could not initialize WandB! {exc}')
+            print(f"Could not initialize WandB! {exc}")
 
         if isinstance(self.cfg, dict):
             wandb.config.update(self.cfg, allow_val_change=True)
