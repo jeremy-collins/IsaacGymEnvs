@@ -142,6 +142,21 @@ def launch_rlg_hydra(cfg: DictConfig):
                 step_trigger=lambda step: step % cfg.capture_video_freq == 0,
                 video_length=cfg.capture_video_len,
             )
+        if cfg.use_image_obs:
+            envs.is_vector_env = True
+            assert cfg.task_name == "ArticulateTask"
+            from isaacgymenvs.tasks.articulate import IsaacGymCameraWrapper
+            camera_spec = {
+                "width": 128,
+                "height": 128,
+                "fov": 90,
+                "position": [0, 0, 0],
+                "rotation": [0, 0, 0],
+                "near_plane": 0.1,
+                "z_far": 100,
+            }
+            envs = IsaacGymCameraWrapper(envs, camera_spec)
+
         return envs
 
     env_configurations.register('rlgpu', {

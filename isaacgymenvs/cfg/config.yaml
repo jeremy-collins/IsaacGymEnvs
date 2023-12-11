@@ -53,6 +53,7 @@ capture_video: False
 capture_video_freq: 1464
 capture_video_len: 100
 force_render: True
+use_image_obs: False
 
 # disables rendering
 headless: False

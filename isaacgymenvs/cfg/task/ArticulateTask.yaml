@@ -29,6 +29,7 @@ env:
   forceLimitScale: 1.0
 
   useRelativeControl: False
+  use_image_obs: ${use_image_obs}
   dofSpeedScale: 20.0
   actionsMovingAverage: 1.0
   controlFrequencyInv: 2 # 30 Hz
