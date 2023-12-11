@@ -51,7 +51,7 @@
 			</geometry>
 		</collision>
 	</link>
-	<joint name="joint_0" type="fixed">
+	<joint name="fixed_joint_0" type="fixed">
 		<origin xyz="0.0 0 0.0"/>
 		<child link="link_0"/>
 		<parent link="link_0_helper"/>
@@ -94,13 +94,13 @@
 			</geometry>
 		</collision>
 	</link>
-	<joint name="joint_1" type="fixed">
+	<joint name="fixed_joint_1" type="fixed">
 		<origin rpy="1.570796326794897 0 -1.570796326794897" xyz="0 0 0"/>
 		<child link="link_1"/>
 		<parent link="base"/>
 	</joint>
 	<link name="link_0_helper"/>
-	<joint name="joint_2" type="prismatic">
+	<joint name="joint_0" type="prismatic">
 		<origin xyz="0.004069706478648613 0 0.007451467190511252"/>
 		<axis xyz="0 -1 0"/>
 		<child link="link_0_helper"/>

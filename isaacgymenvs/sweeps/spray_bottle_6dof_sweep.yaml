@@ -30,7 +30,7 @@ parameters:
   num_envs:
     value: 2048
   max_iterations:
-    value: 1500
+    value: 1000
   experiment:
     value: SprayBottle6DoFWristSweep
   headless:
@@ -44,7 +44,7 @@ command:
   - ${env}
   - ${interpreter}
   - ${program}
-  - task=AllegroHandGrasp
+  - task=ArticulateTask
   - train=AllegroHandGraspPPO
   - wandb_activate=true
   - ${args_no_hyphens}
