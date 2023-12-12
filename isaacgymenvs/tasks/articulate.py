@@ -9,7 +9,7 @@ from isaacgym.torch_utils import *
 from omegaconf import ListConfig
 from isaacgymenvs.utils import rewards
 from isaacgymenvs.tasks.utils import IsaacGymCameraBase
-from omegaconf import OmegaConf 
+from omegaconf import OmegaConf
 from .base.vec_task import VecTask
 
 SUPPORTED_PARTNET_OBJECTS = ["dispenser", "spray_bottle", "pill_bottle", "bottle", "spray_bottle2", "spray_bottle3"]
@@ -643,7 +643,6 @@ class ArticulateTask(VecTask, IsaacGymCameraBase):
                 # tactile cameras created along with other cameras in create_camera_actors
                 self.create_camera_actors()
 
-
         self.object_init_state = to_torch(self.object_init_state, device=self.device, dtype=torch.float).view(
             self.num_envs, 13
         )
@@ -999,7 +998,7 @@ class ArticulateTask(VecTask, IsaacGymCameraBase):
                 (
                     self.current_obs_dict["hand_palm_pos"][i]
                     + quat_apply(
-                        self.current_obs_dict["hand_palm_rot"][i],
+                        self.current_obs_dict["hand_palm_quat"][i],
                         to_torch([1, 0, 0], device=self.device) * 0.2,
                     )
                 )
@@ -1010,7 +1009,7 @@ class ArticulateTask(VecTask, IsaacGymCameraBase):
                 (
                     self.current_obs_dict["hand_palm_pos"][i]
                     + quat_apply(
-                        self.current_obs_dict["hand_palm_rot"][i],
+                        self.current_obs_dict["hand_palm_quat"][i],
                         to_torch([0, 1, 0], device=self.device) * 0.2,
                     )
                 )
@@ -1021,7 +1020,7 @@ class ArticulateTask(VecTask, IsaacGymCameraBase):
                 (
                     self.current_obs_dict["hand_palm_pos"][i]
                     + quat_apply(
-                        self.current_obs_dict["hand_palm_rot"][i],
+                        self.current_obs_dict["hand_palm_quat"][i],
                         to_torch([0, 0, 1], device=self.device) * 0.2,
                     )
                 )
@@ -1137,7 +1136,8 @@ class ArticulateTask(VecTask, IsaacGymCameraBase):
 
         if self.use_image_obs:
             cameras = self.get_camera_image_tensors_dict()
-            self.obs_dict["rgb"] = cameras["hand_camera"]
+            camera_name = list(self.camera_spec_dict.keys())[0]
+            self.obs_dict[camera_name] = cameras[camera_name]
 
     def obs_dict_to_tensor(self, obs_dict, obs_keys=None):
         obs = []

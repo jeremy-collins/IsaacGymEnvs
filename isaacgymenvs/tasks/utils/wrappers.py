@@ -157,6 +157,7 @@ class IsaacGymCameraBase:
             else:
                 print(f'Image type {camera_spec["image_type"]} not supported!')
             camera_image_tensors_dict[name] = camera_images
+        return camera_image_tensors_dict
 
         # if self.nominal_tactile:
         #     for k in self.nominal_tactile:

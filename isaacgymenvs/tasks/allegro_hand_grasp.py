@@ -1113,8 +1113,8 @@ class AllegroHandGrasp(VecTask, IsaacGymCameraBase):
         # reset goal task pose
         if isinstance(self.object_target_dof_pos, torch.Tensor) and len(self.object_target_dof_pos) > 1:
             self.goal_dof_state[env_ids, :, 0] = self.object_target_dof_pos.repeat(
-                len(env_ids) // len(self.object_target_dof_pos)
-            ).unsqueeze(-1)
+                self.num_envs // len(self.object_target_dof_pos)
+            ).unsqueeze(-1)[env_ids]
         else:
             self.goal_dof_state[env_ids, :, 0] = self.object_target_dof_pos  # TODO: resample goal dof state
         goal_indices = self.goal_object_indices[env_ids].to(torch.int32)
@@ -1122,8 +1122,8 @@ class AllegroHandGrasp(VecTask, IsaacGymCameraBase):
         object_target_dof_pos = self.object_target_dof_pos
         if isinstance(self.object_target_dof_pos, torch.Tensor) and len(self.object_target_dof_pos) > 1:
             object_target_dof_pos = self.object_target_dof_pos.repeat(
-                len(env_ids) // len(self.object_target_dof_pos)
-            ).unsqueeze(-1)
+                self.num_envs // len(self.object_target_dof_pos)
+            ).unsqueeze(-1)[env_ids]
 
         self.prev_targets[
             env_ids, self.num_dofs_with_object : self.num_dofs_with_object + self.num_object_dofs
@@ -1926,7 +1926,12 @@ class AllegroHandGraspMultiTask(AllegroHandGrasp):
         self.hand_start_states = []
 
         self.hand_indices = []
-        self.fingertip_indices = []
+        self.fingertips = list(
+            filter(lambda x: x.endswith("link_3"), self.gym.get_asset_rigid_body_dict(allegro_hand_asset).keys())
+        )
+        self.fingertip_indices = [
+            self.gym.find_asset_rigid_body_index(allegro_hand_asset, name) for name in self.fingertips
+        ]
         self.object_indices = []
         self.goal_object_indices = []
 
@@ -2106,6 +2111,7 @@ class AllegroHandGraspMultiTask(AllegroHandGrasp):
         self.hand_indices = to_torch(self.hand_indices, dtype=torch.long, device=self.device)
         self.object_indices = to_torch(self.object_indices, dtype=torch.long, device=self.device)
         self.goal_object_indices = to_torch(self.goal_object_indices, dtype=torch.long, device=self.device)
+        self.fingertip_indices = to_torch(self.fingertip_indices, dtype=torch.long, device=self.device)
 
     def reset_idx(self, env_ids, goal_env_ids=None):
         # generate random values
@@ -2202,12 +2208,13 @@ class AllegroHandGraspMultiTask(AllegroHandGrasp):
             self.gym.refresh_dof_force_tensor(self.sim)
 
         palm_index = [self.palm_index + b for b in self.env_num_bodies]
+        fingertip_indices = torch.cat([self.fingertip_indices + b for b in self.env_num_bodies]).unique()
 
         self.hand_pose_vel = self.rigid_body_states[:, palm_index, 0:10].view(self.num_envs, -1)
         self.hand_pos = self.hand_pose_vel[:, 0:3]
         self.hand_rot = self.hand_pose_vel[:, 3:7]
         self.hand_linvel = self.hand_pose_vel[:, 7:10]
-        self.fingertip_pose_vel = self.rigid_body_states[:, self.fingertip_indices, 0:10]
+        self.fingertip_pose_vel = self.rigid_body_states[:, fingertip_indices, 0:10].view(self.num_envs, -1, 10)
         self.fingertip_pos = self.fingertip_pose_vel[:, :, 0:3]
         self.fingertip_rot = self.fingertip_pose_vel[:, :, 3:7]
         self.fingertip_linvel = self.fingertip_pose_vel[:, :, 7:10]
@@ -2243,6 +2250,11 @@ class AllegroHandGraspMultiTask(AllegroHandGrasp):
 
         if self.asymmetric_obs:
             self.compute_full_state(True)
+
+        if self.use_image_obs:
+            cameras = self.get_camera_image_tensors_dict()
+            camera_name = "hand_camera" 
+            self.obs_dict[camera_name] = cameras[camera_name]
 
     def compute_reward(self, actions):
         (
