@@ -35,14 +35,14 @@ from isaacgym import gymapi
 from isaacgym.torch_utils import *
 from omegaconf import OmegaConf
 
-from isaacgymenvs.tasks.articulate import IsaacGymCameraWrapper
+from isaacgymenvs.tasks.utils import IsaacGymCameraBase
 
 from .base.vec_task import VecTask
 
 SUPPORTED_PARTNET_OBJECTS = ["dispenser", "spray_bottle", "pill_bottle", "bottle", "spray_bottle2", "spray_bottle3"]
 
 
-class AllegroHandGrasp(VecTask, IsaacGymCameraWrapper):
+class AllegroHandGrasp(VecTask, IsaacGymCameraBase):
     def __init__(
         self,
         cfg,
@@ -113,7 +113,7 @@ class AllegroHandGrasp(VecTask, IsaacGymCameraWrapper):
         )
 
         self.ignore_z = self.object_type == "pen"
-        self.use_image_obs = self.cfg['env'].get("use_image_obs", False)
+        self.use_image_obs = self.cfg["env"].get("enableCameraSensors", False)
 
         self.asset_files_dict = {
             "block": "urdf/objects/cube_multicolor.urdf",
@@ -449,8 +449,12 @@ class AllegroHandGrasp(VecTask, IsaacGymCameraWrapper):
         self.object_indices = []
         self.goal_object_indices = []
 
-        self.fingertips = list(filter(lambda x: x.endswith('link_3'), self.gym.get_asset_rigid_body_dict(allegro_hand_asset).keys()))
-        self.fingertip_indices = [self.gym.find_asset_rigid_body_index(allegro_hand_asset, name) for name in self.fingertips]
+        self.fingertips = list(
+            filter(lambda x: x.endswith("link_3"), self.gym.get_asset_rigid_body_dict(allegro_hand_asset).keys())
+        )
+        self.fingertip_indices = [
+            self.gym.find_asset_rigid_body_index(allegro_hand_asset, name) for name in self.fingertips
+        ]
         self.object_rb_count = self.gym.get_asset_rigid_body_count(object_asset)
         self.shadow_hand_rb_handles = list(range(self.num_shadow_hand_bodies))
         self.object_rb_handles = list(
@@ -570,8 +574,6 @@ class AllegroHandGrasp(VecTask, IsaacGymCameraWrapper):
             self.get_default_camera_specs()
             if self.camera_spec_dict:
                 # tactile cameras created along with other cameras in create_camera_actors
-                self.camera_handles_list = []
-                self.camera_tensors_list = []
                 self.create_camera_actors()
 
         object_rb_props = self.gym.get_actor_rigid_body_properties(env_ptr, object_handle)
@@ -596,23 +598,23 @@ class AllegroHandGrasp(VecTask, IsaacGymCameraWrapper):
 
     def get_default_camera_specs(self):
         camera_config = {
-                "name": "hand_camera",
-                "is_body_camera": False,
-                "actor_name": "hand",
-                "attach_link_name": "palm_link",
-                "use_collision_geometry": True,
-                "width": 128,
-                "height": 128,
-                "image_size": [128, 128],
-                "image_type": "rgb",
-                "horizontal_fov": 90.,
-                # "position": [-0.1, 0.15, 0.15],
-                # "rotation": [1, 0, 0, 0],
-                "near_plane": 0.1,
-                "far_plane": 100,
-                "camera_pose": [[0., -0.35, 0.2], [0.        , 0.        , 0.85090352, 0.52532199]],
+            "name": "hand_camera",
+            "is_body_camera": False,
+            "actor_name": "hand",
+            "attach_link_name": "palm_link",
+            "use_collision_geometry": True,
+            "width": 128,
+            "height": 128,
+            "image_size": [128, 128],
+            "image_type": "rgb",
+            "horizontal_fov": 90.0,
+            # "position": [-0.1, 0.15, 0.15],
+            # "rotation": [1, 0, 0, 0],
+            "near_plane": 0.1,
+            "far_plane": 100,
+            "camera_pose": [[0.0, -0.35, 0.2], [0.0, 0.0, 0.85090352, 0.52532199]],
         }
-        self.camera_spec_dict = {"hand_camera":OmegaConf.create(camera_config)}
+        self.camera_spec_dict = {"hand_camera": OmegaConf.create(camera_config)}
 
     def compute_reward(self, actions):
         (
@@ -653,8 +655,10 @@ class AllegroHandGrasp(VecTask, IsaacGymCameraWrapper):
         self.extras["consecutive_successes"] = self.consecutive_successes.mean()
         self.extras["goal_dist"] = torch.norm(self.object_pos - self.goal_pos, p=2, dim=-1)
         self.extras["hand_dist"] = torch.norm(self.hand_pos - self.object_pos, p=2, dim=-1)
-        self.extras["fingertip_dist"] = torch.norm(self.fingertip_pos - self.object_pos.unsqueeze(1), p=2, dim=-1).sum(-1)
-        self.extras["full_hand_dist"] = self.extras['hand_dist'] + self.extras['fingertip_dist']
+        self.extras["fingertip_dist"] = torch.norm(self.fingertip_pos - self.object_pos.unsqueeze(1), p=2, dim=-1).sum(
+            -1
+        )
+        self.extras["full_hand_dist"] = self.extras["hand_dist"] + self.extras["fingertip_dist"]
 
         self.extras["task_dist"] = (
             (self.goal_dof_pos - self.object_dof_pos[:, self.object_target_dof_idx]).abs().flatten()
@@ -748,9 +752,6 @@ class AllegroHandGrasp(VecTask, IsaacGymCameraWrapper):
         if self.use_image_obs:
             cameras = self.get_camera_image_tensors_dict()
             self.obs_dict["rgb"] = cameras["hand_camera"]
-            import matplotlib.pyplot as plt
-            plt.imshow(cameras['hand_camera'][0].cpu().numpy())
-            plt.show()
 
         if self.asymmetric_obs:
             self.compute_full_state(True)
@@ -1368,7 +1369,7 @@ class AllegroHandGrasp(VecTask, IsaacGymCameraWrapper):
                     .numpy()
                 )
 
-                p0 = self.hand_pos[i].cpu().numpy() # + self.goal_displacement_tensor.cpu().numpy()
+                p0 = self.hand_pos[i].cpu().numpy()  # + self.goal_displacement_tensor.cpu().numpy()
                 self.gym.add_lines(
                     self.viewer,
                     self.envs[i],
@@ -1515,7 +1516,6 @@ class AllegroHandGrasp(VecTask, IsaacGymCameraWrapper):
         )
 
 
-
 class AllegroHandGraspMultiTask(AllegroHandGrasp):
     def __init__(
         self,
@@ -1597,7 +1597,7 @@ class AllegroHandGraspMultiTask(AllegroHandGrasp):
         self.fix_object_base = self.cfg["env"].get("fixObjectBase", True)
         self.object_mass = self.cfg["env"].get("objectMass", 10)
         self.ignore_z = [otype == "pen" for otype in self.object_types]
-        self.use_image_obs = self.cfg['env'].get("use_image_obs", False)
+        self.use_image_obs = self.cfg["env"].get("enableCameraSensors", False)
 
         self.asset_files_dict = {
             "block": "urdf/objects/cube_multicolor.urdf",
@@ -1837,7 +1837,7 @@ class AllegroHandGraspMultiTask(AllegroHandGrasp):
         goal_assets = []
         object_dof_indices = []
         num_object_dofs = []
-        object_bodies_max  = 0
+        object_bodies_max = 0
         object_shapes_max = 0
         for object_asset_file in object_asset_files:
             object_asset = self.gym.load_asset(self.sim, asset_root, object_asset_file, object_asset_options)
@@ -1854,7 +1854,11 @@ class AllegroHandGraspMultiTask(AllegroHandGrasp):
             # TODO: expand this list to include full set of operable object types
             if object_type in SUPPORTED_PARTNET_OBJECTS:
                 num_object_dofs.append(self.gym.get_asset_dof_count(object_asset))
-                object_dof_indices.append(self.gym.get_asset_dof_dict(object_asset)[self.object_target_dof_name[i % len(self.object_target_dof_name)]])
+                object_dof_indices.append(
+                    self.gym.get_asset_dof_dict(object_asset)[
+                        self.object_target_dof_name[i % len(self.object_target_dof_name)]
+                    ]
+                )
             else:
                 num_object_dofs.append(0)
             object_assets.append(object_asset)
@@ -2058,8 +2062,6 @@ class AllegroHandGraspMultiTask(AllegroHandGrasp):
             self.get_default_camera_specs()
             if self.camera_spec_dict:
                 # tactile cameras created along with other cameras in create_camera_actors
-                self.camera_handles_list = []
-                self.camera_tensors_list = []
                 self.create_camera_actors()
 
         object_rb_props = self.gym.get_actor_rigid_body_properties(env_ptr, object_handle)
@@ -2285,8 +2287,10 @@ class AllegroHandGraspMultiTask(AllegroHandGrasp):
         )
 
         self.extras["hand_dist"] = torch.norm(self.hand_pos - self.object_pos, p=2, dim=-1)
-        self.extras["fingertip_dist"] = torch.norm(self.fingertip_pos - self.object_pos.unsqueeze(1), p=2, dim=-1).sum(-1)
-        self.extras["full_hand_dist"] = self.extras['hand_dist'] + self.extras['fingertip_dist']
+        self.extras["fingertip_dist"] = torch.norm(self.fingertip_pos - self.object_pos.unsqueeze(1), p=2, dim=-1).sum(
+            -1
+        )
+        self.extras["full_hand_dist"] = self.extras["hand_dist"] + self.extras["fingertip_dist"]
 
         if self.print_success_stat:
             self.total_resets = self.total_resets + self.reset_buf.sum()
