@@ -35,12 +35,14 @@ from isaacgym import gymapi
 from isaacgym.torch_utils import *
 from omegaconf import OmegaConf
 
+from isaacgymenvs.tasks.articulate import IsaacGymCameraWrapper
+
 from .base.vec_task import VecTask
 
 SUPPORTED_PARTNET_OBJECTS = ["dispenser", "spray_bottle", "pill_bottle", "bottle", "spray_bottle2", "spray_bottle3"]
 
 
-class AllegroHandGrasp(VecTask):
+class AllegroHandGrasp(VecTask, IsaacGymCameraWrapper):
     def __init__(
         self,
         cfg,
@@ -111,6 +113,7 @@ class AllegroHandGrasp(VecTask):
         )
 
         self.ignore_z = self.object_type == "pen"
+        self.use_image_obs = self.cfg['env'].get("use_image_obs", False)
 
         self.asset_files_dict = {
             "block": "urdf/objects/cube_multicolor.urdf",
@@ -562,6 +565,15 @@ class AllegroHandGrasp(VecTask):
             self.envs.append(env_ptr)
             self.shadow_hands.append(shadow_hand_actor)
 
+        if self.use_image_obs:
+            self.camera_spec_dict = dict()
+            self.get_default_camera_specs()
+            if self.camera_spec_dict:
+                # tactile cameras created along with other cameras in create_camera_actors
+                self.camera_handles_list = []
+                self.camera_tensors_list = []
+                self.create_camera_actors()
+
         object_rb_props = self.gym.get_actor_rigid_body_properties(env_ptr, object_handle)
         self.object_rb_masses = [prop.mass for prop in object_rb_props]
 
@@ -581,6 +593,26 @@ class AllegroHandGrasp(VecTask):
         self.hand_indices = to_torch(self.hand_indices, dtype=torch.long, device=self.device)
         self.object_indices = to_torch(self.object_indices, dtype=torch.long, device=self.device)
         self.goal_object_indices = to_torch(self.goal_object_indices, dtype=torch.long, device=self.device)
+
+    def get_default_camera_specs(self):
+        camera_config = {
+                "name": "hand_camera",
+                "is_body_camera": False,
+                "actor_name": "hand",
+                "attach_link_name": "palm_link",
+                "use_collision_geometry": True,
+                "width": 128,
+                "height": 128,
+                "image_size": [128, 128],
+                "image_type": "rgb",
+                "horizontal_fov": 90.,
+                # "position": [-0.1, 0.15, 0.15],
+                # "rotation": [1, 0, 0, 0],
+                "near_plane": 0.1,
+                "far_plane": 100,
+                "camera_pose": [[0., -0.35, 0.2], [0.        , 0.        , 0.85090352, 0.52532199]],
+        }
+        self.camera_spec_dict = {"hand_camera":OmegaConf.create(camera_config)}
 
     def compute_reward(self, actions):
         (
@@ -712,6 +744,13 @@ class AllegroHandGrasp(VecTask):
             self.compute_full_state()
         else:
             print("Unkown observations type!")
+
+        if self.use_image_obs:
+            cameras = self.get_camera_image_tensors_dict()
+            self.obs_dict["rgb"] = cameras["hand_camera"]
+            import matplotlib.pyplot as plt
+            plt.imshow(cameras['hand_camera'][0].cpu().numpy())
+            plt.show()
 
         if self.asymmetric_obs:
             self.compute_full_state(True)
@@ -1476,10 +1515,8 @@ class AllegroHandGrasp(VecTask):
         )
 
 
-from isaacgymenvs.tasks.articulate import IsaacGymCameraWrapper
 
-
-class AllegroHandGraspMultiTask(AllegroHandGrasp, IsaacGymCameraWrapper):
+class AllegroHandGraspMultiTask(AllegroHandGrasp):
     def __init__(
         self,
         cfg,
@@ -2067,26 +2104,6 @@ class AllegroHandGraspMultiTask(AllegroHandGrasp, IsaacGymCameraWrapper):
         self.hand_indices = to_torch(self.hand_indices, dtype=torch.long, device=self.device)
         self.object_indices = to_torch(self.object_indices, dtype=torch.long, device=self.device)
         self.goal_object_indices = to_torch(self.goal_object_indices, dtype=torch.long, device=self.device)
-
-    def get_default_camera_specs(self):
-        camera_config = {
-                "name": "hand_camera",
-                "is_body_camera": True,
-                "actor_name": "hand",
-                "attach_link_name": "palm_link",
-                "use_collision_geometry": True,
-                "width": 128,
-                "height": 128,
-                "image_size": [128, 128],
-                "image_type": "rgb",
-                "horizontal_fov": 90.,
-                "position": [0, 0, 0],
-                "rotation": [0, 0, 0],
-                "near_plane": 0.1,
-                "far_plane": 100,
-                "camera_pose": [[0,0,0], [1, 0, 0, 0]],
-        }
-        self.camera_spec_dict = {"hand_camera":OmegaConf.create(camera_config)}
 
     def reset_idx(self, env_ids, goal_env_ids=None):
         # generate random values

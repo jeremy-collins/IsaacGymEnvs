@@ -129,6 +129,8 @@ class ArticulateTask(VecTask):
         num_objects = 0
         obj_types = 0
         max_obj_instances = 1
+
+        # TODO: add one-hot encoding for object type and instance (combined)
         for object_type in self.object_type:
             obj_types += 1
             if isinstance(self.asset_files_dict[object_type], str):
@@ -434,7 +436,7 @@ class ArticulateTask(VecTask):
 
         self.num_dofs_with_object = self.num_shadow_hand_dofs + self.num_object_dofs
 
-        allegro_hand_start_pose = gymapi.Transform()
+        self.hand_start_pose = allegro_hand_start_pose = gymapi.Transform()
         allegro_hand_start_pose.p = gymapi.Vec3(*get_axis_params(0.25, self.up_axis_idx))
         allegro_hand_start_pose.r = (
             gymapi.Quat.from_axis_angle(gymapi.Vec3(0, 1, 0), 1.5 * np.pi)
@@ -935,6 +937,7 @@ class ArticulateTask(VecTask):
             )
 
         num_resets = resets.sum()
+        self.reset_buf[:] = resets
 
         finished_cons_successes = torch.sum(self.successes * resets.float(), dim=-1)
         self.consecutive_successes = torch.where(
@@ -1134,18 +1137,19 @@ from gym import Wrapper
 from omegaconf import OmegaConf
 
 
-class IsaacGymCameraWrapper(Wrapper):
+class IsaacGymCameraWrapper:
     height = 256
     width = 256
 
-    def __init__(self, env, camera_spec):
+    def __init__(self, camera_spec, cfg_task=None):
+        self.cfg_task = cfg_task
         cam_pos = camera_spec["camera_pose"]["position"]
         cam_quat = camera_spec["camera_pose"]["rotation"]
         self.znear = camera_spec["near_plane"]
         self.fov_x = camera_spec["horizontal_fov"]
         camera_config = {
             "name": "hand_camera",
-            "is_body_camera": True,
+            "is_body_camera": False,  # set to True to have camera move with hand
             "actor_name": "hand",
             "image_size": [self.height, self.width],
             "image_type": "rgb",
@@ -1165,7 +1169,7 @@ class IsaacGymCameraWrapper(Wrapper):
             self.camera_tensors_list = []
             self.create_camera_actors()
 
-        super().__init__(env)
+        # super().__init__(env)
 
     def create_camera_actors(self):
         for i in range(self.num_envs):
@@ -1238,9 +1242,7 @@ class IsaacGymCameraWrapper(Wrapper):
 
     def compute_observations(self):
         cameras = self.get_camera_image_tensors_dict()
-        observations = self.env.compute_observations()
         self.obs_dict["rgb"] = cameras["hand_camera"]
-        return observations
 
     def get_camera_image_tensors_dict(self):
         # transforms and information must be communicated from the physics simulation into the graphics system
@@ -1289,9 +1291,9 @@ class IsaacGymCameraWrapper(Wrapper):
         #         taxim_render_all = self.taxim_gelsight.render_tensorized(depth_image)
         #         # taxim_render = self.taxim_gelsight.render(depth_image.cpu().numpy()[0])
         #         camera_image_tensors_dict[f"{k}_taxim"] = taxim_render_all
-        #
+
         #         # Optionally subsample tactile image
-        #         ssr = self.tactile_subsample_ratio
+        #         ssr = self.cfg_task.env.tactile_subsample_ratio
         #         camera_image_tensors_dict[k] = camera_image_tensors_dict[k][:, ::ssr, ::ssr]
         #         camera_image_tensors_dict[f"{k}_taxim"] = camera_image_tensors_dict[f"{k}_taxim"][:, ::ssr, ::ssr]
         # else:

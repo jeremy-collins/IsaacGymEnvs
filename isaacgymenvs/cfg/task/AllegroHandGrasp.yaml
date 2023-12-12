@@ -58,6 +58,7 @@ env:
   successTolerance: 0.005
   printNumSuccesses: False
   maxConsecutiveSuccesses: 0
+  use_image_obs: false
 
   asset:
     assetFileName: "urdf/kuka_allegro_description/allegro_grasp.urdf"
