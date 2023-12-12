@@ -9,7 +9,7 @@ from isaacgym.torch_utils import *
 from omegaconf import ListConfig
 from isaacgymenvs.utils import rewards
 from isaacgymenvs.tasks.utils import IsaacGymCameraBase
-
+from omegaconf import OmegaConf 
 from .base.vec_task import VecTask
 
 SUPPORTED_PARTNET_OBJECTS = ["dispenser", "spray_bottle", "pill_bottle", "bottle", "spray_bottle2", "spray_bottle3"]
@@ -120,6 +120,8 @@ class ArticulateTask(VecTask, IsaacGymCameraBase):
         assert all(
             [object_type in SUPPORTED_PARTNET_OBJECTS for object_type in self.object_type]
         ), f"object type {self.object_type} not supported"
+
+        self.use_image_obs = self.cfg["env"].get("enableCameraSensors", False)
 
         self.asset_files_dict = {}
         for obj in SUPPORTED_PARTNET_OBJECTS:
@@ -633,6 +635,15 @@ class ArticulateTask(VecTask, IsaacGymCameraBase):
             self.envs.append(env_ptr)
             self.shadow_hands.append(shadow_hand_actor)
 
+        # create cameras
+        if self.use_image_obs:
+            self.camera_spec_dict = dict()
+            self.get_default_camera_specs()
+            if self.camera_spec_dict:
+                # tactile cameras created along with other cameras in create_camera_actors
+                self.create_camera_actors()
+
+
         self.object_init_state = to_torch(self.object_init_state, device=self.device, dtype=torch.float).view(
             self.num_envs, 13
         )
@@ -1124,6 +1135,10 @@ class ArticulateTask(VecTask, IsaacGymCameraBase):
         self.current_obs_dict = obs_dict
         self.obs_buf[:] = self.obs_dict_to_tensor(obs_dict)
 
+        if self.use_image_obs:
+            cameras = self.get_camera_image_tensors_dict()
+            self.obs_dict["rgb"] = cameras["hand_camera"]
+
     def obs_dict_to_tensor(self, obs_dict, obs_keys=None):
         obs = []
         obs_keys = obs_keys or self.obs_keys
@@ -1153,5 +1168,3 @@ class ArticulateTask(VecTask, IsaacGymCameraBase):
             "camera_pose": [[0.0, -0.35, 0.2], [0.0, 0.0, 0.85090352, 0.52532199]],
         }
         self.camera_spec_dict = {"hand_camera": OmegaConf.create(camera_config)}
-
-        return camera_image_tensors_dict
