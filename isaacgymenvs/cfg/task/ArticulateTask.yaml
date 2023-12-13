@@ -4,6 +4,7 @@ defaults:
     - action_penalty
     - object_pos_err
     - object_dof_pos_err
+    - task_reward
     - reach_bonus
     - drop_penalty
     - hand_dist
@@ -50,7 +51,7 @@ env:
   # reward -> dictionary
   successTolerance: 0.005
   rewardParams: 
-    task_rew: ${task.rewards.object_dof_pos_err}
+    task_rew: ${task.rewards.task_reward}
     hand_dist: ${task.rewards.hand_dist}
     action_penalty: ${task.rewards.action_penalty}
     reach_bonus: ${task.rewards.reach_bonus}
@@ -65,6 +66,7 @@ env:
   objectDofTargetPos: 
     - 0.075  # 0.05 for spray_bottle
     - 0.08  # 0.05 for spray_bottle
+  scaleDofPos: true
   objectMass: 10
   objectStiffness: 3
   objectDamping: 0.1

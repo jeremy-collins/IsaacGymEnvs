@@ -118,8 +118,8 @@ class ArticulateTask(VecTask, IsaacGymCameraBase):
         self.object_instance = self.cfg["env"].get("objectInstance", {})
         self.fix_object_base = self.cfg["env"].get("fixObjectBase", False)
         self.object_mass = self.cfg["env"].get("objectMass", 1)
-        # TODO: remove this, for testing purposes
         self.object_mass_base_only = self.cfg["env"].get("objectMassBaseOnly", False)
+
         if not isinstance(self.object_type, ListConfig):
             self.object_type = [self.object_type]
         assert all(
@@ -1113,14 +1113,15 @@ class ArticulateTask(VecTask, IsaacGymCameraBase):
         obs_dict["goal_quat"] = self.goal_states[:, 3:7]
         obs_dict["object_lin_vel"] = self.root_state_tensor[self.object_indices, 7:10]
         obs_dict["object_ang_vel"] = self.vel_obs_scale * self.root_state_tensor[self.object_indices, 10:13]
+
+        obs_dict["object_dof_pos"] = self.object_dof_pos.view(self.num_envs, -1)
         if self.scale_dof_pos:
             obs_dict["object_dof_pos"] = unscale(
-                self.object_dof_pos.view(self.num_envs // self.num_objects, self.num_objects, -1),
+                obs_dict["object_dof_pos"].view(self.num_envs // self.num_objects, self.num_objects, -1),
                 self.object_dof_lower_limits,
                 self.object_dof_upper_limits,
             ).view(self.num_envs, -1)
-        else:
-            obs_dict["object_dof_pos"] = self.object_dof_pos.view(self.num_envs // self.num_objects, self.num_objects, -1)
+
         if isinstance(self.object_target_dof_pos, torch.Tensor):
             object_target_dof = (
                 self.object_target_dof_pos.unsqueeze(0).repeat(self.num_envs // self.num_objects, 1).unsqueeze(-1)
@@ -1128,14 +1129,14 @@ class ArticulateTask(VecTask, IsaacGymCameraBase):
         else:
             object_target_dof = self.object_target_dof_pos * torch.ones_like(obs_dict["object_dof_pos"])
         
+        obs_dict["goal_dof_pos"] = object_target_dof.view(self.num_envs, -1)
         if self.scale_dof_pos:
             obs_dict["goal_dof_pos"] = unscale(
-                object_target_dof,
+                obs_dict["object_target_dof"].view(self.num_envs // self.num_objects, self.num_objects, -1),
                 self.object_dof_lower_limits,
                 self.object_dof_upper_limits,
             ).view(self.num_envs, -1)
-        else:
-            obs_dict["goal_dof_pos"] = object_target_dof
+
         obs_dict["hand_palm_pos"] = self.rigid_body_states[:, palm_index, 0:3].view(self.num_envs, -1)
         obs_dict["hand_palm_quat"] = self.rigid_body_states[:, palm_index, 3:7].view(self.num_envs, -1)
         obs_dict["hand_palm_vel"] = self.vel_obs_scale * self.rigid_body_states[:, palm_index, 7:10].view(
