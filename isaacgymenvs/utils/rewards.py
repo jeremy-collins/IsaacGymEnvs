@@ -12,6 +12,9 @@ l1_dist = lambda x, y: torch.abs(x - y).sum(dim=-1)
 def l2_dist_exp(x, y, eps: float = 1e-1):
     return torch.exp(-torch.linalg.norm(x - y, dim=-1) / eps)
 
+@torch.jit.script
+def l2_dist_exp_normalized(x, target):
+    return torch.exp(-torch.linalg.norm(x - target, dim=-1) / target)
 
 @torch.jit.script
 def rot_dist(object_rot, target_rot):
