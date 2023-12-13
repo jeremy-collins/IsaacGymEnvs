@@ -12,7 +12,7 @@ from isaacgymenvs.tasks.utils import IsaacGymCameraBase
 from omegaconf import OmegaConf
 from .base.vec_task import VecTask
 
-SUPPORTED_PARTNET_OBJECTS = ["dispenser", "spray_bottle", "pill_bottle", "bottle", "spray_bottle2", "spray_bottle3"]
+SUPPORTED_PARTNET_OBJECTS = ["dispenser", "spray_bottle", "pill_bottle", "bottle"]
 
 
 class ArticulateTask(VecTask, IsaacGymCameraBase):
@@ -73,8 +73,9 @@ class ArticulateTask(VecTask, IsaacGymCameraBase):
 
         self.object_target_dof_name = self.cfg["env"]["objectDofName"]
         self.object_target_dof_pos = self.cfg["env"]["objectDofTargetPos"]
-        if isinstance(self.object_target_dof_pos, ListConfig):
-            self.object_target_dof_pos = to_torch(self.object_target_dof_pos, device=sim_device, dtype=torch.float)
+        if not isinstance(self.object_target_dof_pos, (ListConfig, list)):
+            self.object_target_dof_pos = [self.object_target_dof_pos]
+        self.object_target_dof_pos = to_torch(self.object_target_dof_pos, device=sim_device, dtype=torch.float)
         # else:
         #     raise AssertionError("objectDofTargetPos must be a list")
         self.object_stiffness = self.cfg["env"].get("objectStiffness")
@@ -113,6 +114,7 @@ class ArticulateTask(VecTask, IsaacGymCameraBase):
         self.load_default_pos = self.cfg["env"].get("load_default_pos", False)
 
         self.object_type = self.cfg["env"]["objectType"]
+        self.object_instance = self.cfg["env"].get("objectInstance", {})
         self.fix_object_base = self.cfg["env"].get("fixObjectBase", False)
         self.object_mass = self.cfg["env"].get("objectMass", 1)
         if not isinstance(self.object_type, ListConfig):
@@ -124,10 +126,17 @@ class ArticulateTask(VecTask, IsaacGymCameraBase):
         self.use_image_obs = self.cfg["env"].get("enableCameraSensors", False)
 
         self.asset_files_dict = {}
+        use_object_instances = False
         for obj in SUPPORTED_PARTNET_OBJECTS:
             obj_name = "".join([x.capitalize() for x in obj.split("_")])
             if f"assetFileName{obj_name}" in self.cfg["env"]["asset"]:
-                self.asset_files_dict[obj] = self.cfg["env"]["asset"][f"assetFileName{obj_name}"]
+                obj_assets = self.cfg["env"]["asset"][f"assetFileName{obj_name}"]
+                if obj in self.object_instance:
+                    # obj_assets = [obj_assets[i] for i in self.object_instance[obj]]
+                    use_object_instances = True
+                if isinstance(obj_assets, str):
+                    obj_assets = [obj_assets]
+                self.asset_files_dict[obj] = obj_assets
             else:
                 self.asset_files_dict[obj] = f"urdf/objects/{obj}/mobility.urdf"
         num_objects = 0
@@ -137,24 +146,32 @@ class ArticulateTask(VecTask, IsaacGymCameraBase):
         # TODO: add one-hot encoding for object type and instance (combined)
         for object_type in self.object_type:
             obj_types += 1
-            if isinstance(self.asset_files_dict[object_type], str):
-                num_objects += 1
+            if object_type in self.object_instance:
+                num_objects += len(self.object_instance[object_type])
             else:
                 num_objects += len(self.asset_files_dict[object_type])
-                max_obj_instances = max(max_obj_instances, len(self.asset_files_dict[object_type]))
+            max_obj_instances = max(max_obj_instances, len(self.asset_files_dict[object_type]))
+
+        use_object_types = obj_types > 1
+        use_object_instances = use_object_instances or max_obj_instances > 1
+        self.max_obj_instances = max_obj_instances
         self.num_objects = num_objects
+        assert len(self.object_target_dof_pos) == 1 or len(self.object_target_dof_pos) == self.num_objects, (
+            f"objectDofTargetPos must be a list of length 1 or {self.num_objects}"
+            if self.num_objects > 1
+            else "objectDofTargetPos must be a list of length 1"
+        )
         self.obs_type = self.cfg["env"]["observationType"]
         full_state_dim = 98 if self.cfg["env"]["numActions"] == 22 else 83
         no_vel_dim = 89 if self.cfg["env"]["numActions"] == 22 else 74
 
         # TODO: handle object instances
-        if self.num_objects > 1:
-            if obj_types > 1:
-                full_state_dim, no_vel_dim = full_state_dim + 1, no_vel_dim + 1
-                self.obs_keys += ["object_type"]
-            if max_obj_instances > 1:
-                full_state_dim, no_vel_dim = full_state_dim + 1, no_vel_dim + 1
-                self.obs_keys += ["object_instance"]
+        if use_object_types:
+            full_state_dim, no_vel_dim = full_state_dim + len(SUPPORTED_PARTNET_OBJECTS), no_vel_dim + len(SUPPORTED_PARTNET_OBJECTS)
+            self.obs_keys += ["object_type"]
+        if use_object_instances:
+            full_state_dim, no_vel_dim = full_state_dim + max_obj_instances, no_vel_dim + max_obj_instances
+            self.obs_keys += ["object_instance"]
 
         self.num_obs_dict = {
             "full_state": full_state_dim,
@@ -317,6 +334,7 @@ class ArticulateTask(VecTask, IsaacGymCameraBase):
             asset_root = self.cfg["env"]["asset"].get("assetRoot", asset_root)
             allegro_hand_asset_file = self.cfg["env"]["asset"].get("assetFileName", allegro_hand_asset_file)
 
+        # get object assets according to object type and instance
         object_asset_files = []
         self.env_instance_order = []
         self.env_task_order = []
@@ -324,9 +342,13 @@ class ArticulateTask(VecTask, IsaacGymCameraBase):
             object_id = SUPPORTED_PARTNET_OBJECTS.index(object_type)
             self.env_task_order.append(object_id)
             object_asset_file = self.asset_files_dict[object_type]
-            if isinstance(object_asset_file, ListConfig):
+            object_instance_ids = range(len(object_asset_file))
+            if isinstance(object_asset_file, (ListConfig, list)):
+                if self.object_instance.get(object_type, []):
+                    object_asset_file = [object_asset_file[i] for i in self.object_instance[object_type]]
+                    object_instance_ids = self.object_instance[object_type]
                 object_asset_files += list(object_asset_file)
-                self.env_instance_order += list(range(len(object_asset_file)))
+                self.env_instance_order += list(object_instance_ids)
             else:
                 object_asset_files.append(object_asset_file)
 
@@ -1131,6 +1153,13 @@ class ArticulateTask(VecTask, IsaacGymCameraBase):
                 .repeat(self.num_envs // self.num_objects)
                 .unsqueeze(-1)
             )
+
+        if "object_instance" in obs_dict:
+            max_instances = self.max_obj_instances
+            object_instance_one_hot = torch.nn.functional.one_hot(
+                obs_dict["object_instance"].to(torch.int64), num_classes=max_instances
+            ).squeeze(-2)
+            obs_dict["object_instance"] = object_instance_one_hot.to(self.device)
         self.current_obs_dict = obs_dict
         self.obs_buf[:] = self.obs_dict_to_tensor(obs_dict)
 
