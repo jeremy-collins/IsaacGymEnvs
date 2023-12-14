@@ -1132,7 +1132,7 @@ class ArticulateTask(VecTask, IsaacGymCameraBase):
         obs_dict["goal_dof_pos"] = object_target_dof.view(self.num_envs, -1)
         if self.scale_dof_pos:
             obs_dict["goal_dof_pos"] = unscale(
-                obs_dict["object_target_dof"].view(self.num_envs // self.num_objects, self.num_objects, -1),
+                obs_dict["goal_dof_pos"].view(self.num_envs // self.num_objects, self.num_objects, -1),
                 self.object_dof_lower_limits,
                 self.object_dof_upper_limits,
             ).view(self.num_envs, -1)
