@@ -205,6 +205,8 @@ class ArticulateTask(VecTask, IsaacGymCameraBase):
             virtual_screen_capture=virtual_screen_capture,
             force_render=force_render,
         )
+        self.actions = torch.zeros(self.num_envs, self.cfg["env"]["numActions"], device=self.device)
+
         self.init_sim()
 
     def init_sim(self):
@@ -781,7 +783,7 @@ class ArticulateTask(VecTask, IsaacGymCameraBase):
 
         # reset rigid body forces
         if self.num_objects > 1:
-            rb_env_ids = torch.unique(env_ids // self.num_objects)
+            rb_env_ids = torch.unique(to_torch(env_ids // self.num_objects, device=self.device, dtype=torch.long))
         else:
             rb_env_ids = env_ids
         self.rb_forces[rb_env_ids, :, :] = 0.0
@@ -942,6 +944,23 @@ class ArticulateTask(VecTask, IsaacGymCameraBase):
         self.extras["full_hand_dist"] = self.extras["hand_dist"] + self.extras["fingertip_dist"]
 
         self.extras["success"] = self._check_success().flatten()
+
+        if self.print_success_stat and self.reset_buf.sum() > 0:
+            self.total_resets = self.total_resets + self.reset_buf.sum()
+            direct_average_successes = self.total_successes + self.successes.sum()
+            self.total_successes = self.total_successes + (self.successes * self.reset_buf).sum()
+
+            # The direct average shows the overall result more quickly, but slightly undershoots long term
+            # policy performance.
+            print(
+                "Direct average consecutive successes = {:.1f}".format(
+                    direct_average_successes / (self.total_resets + self.num_envs)
+                )
+            )
+            if self.total_resets > 0:
+                print(
+                    "Post-Reset average consecutive successes = {:.1f}".format(self.total_successes / self.total_resets)
+                )
 
         if self.viewer and self.debug_viz:
             self.debug_visualization()
@@ -1128,7 +1147,7 @@ class ArticulateTask(VecTask, IsaacGymCameraBase):
             )
         else:
             object_target_dof = self.object_target_dof_pos * torch.ones_like(obs_dict["object_dof_pos"])
-        
+
         obs_dict["goal_dof_pos"] = object_target_dof.view(self.num_envs, -1)
         if self.scale_dof_pos:
             obs_dict["goal_dof_pos"] = unscale(
@@ -1198,15 +1217,17 @@ class ArticulateTask(VecTask, IsaacGymCameraBase):
         return obs_tensor
 
     def get_default_camera_specs(self):
+        camera_spec = self.cfg['env'].get("camera_spec", dict(width=128, height=128))
+        assert "width" in camera_spec and "height" in camera_spec
         camera_config = {
-            "name": "hand_camera",
-            "is_body_camera": False,
-            "actor_name": "hand",
-            "attach_link_name": "palm_link",
+            "name": camera_spec.get("name", "hand_camera"),
+            "is_body_camera": camera_spec.get("is_body_camera", False),
+            "actor_name": camera_spec.get("actor_name", "hand"),
+            "attach_link_name": camera_spec.get("attach_link_name", "palm_link"),
             "use_collision_geometry": True,
-            "width": 128,
-            "height": 128,
-            "image_size": [128, 128],
+            "width": camera_spec["width"],
+            "height": camera_spec["height"],
+            "image_size": [camera_spec["width"], camera_spec["height"]],
             "image_type": "rgb",
             "horizontal_fov": 90.0,
             # "position": [-0.1, 0.15, 0.15],
@@ -1215,4 +1236,4 @@ class ArticulateTask(VecTask, IsaacGymCameraBase):
             "far_plane": 100,
             "camera_pose": [[0.0, -0.35, 0.2], [0.0, 0.0, 0.85090352, 0.52532199]],
         }
-        self.camera_spec_dict = {"hand_camera": OmegaConf.create(camera_config)}
+        self.camera_spec_dict = {camera_config["name"]: OmegaConf.create(camera_config)}

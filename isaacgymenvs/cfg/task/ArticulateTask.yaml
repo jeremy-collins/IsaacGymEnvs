@@ -66,7 +66,7 @@ env:
   objectDofTargetPos: 
     - 0.075  # 0.05 for spray_bottle
     - 0.08  # 0.05 for spray_bottle
-  scaleDofPos: true
+  scaleDofPos: false
   objectMass: 10
   objectStiffness: 3
   objectDamping: 0.1
