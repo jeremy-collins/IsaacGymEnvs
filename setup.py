@@ -24,7 +24,7 @@ INSTALL_REQUIRES = [
     "pyvirtualdisplay",
     "urdfpy==0.0.22",
     "pysdf==0.1.9",
-    "warp-lang==0.10.1",
+    # "warp-lang==0.10.1",
     "trimesh==3.23.5",
     ]
 

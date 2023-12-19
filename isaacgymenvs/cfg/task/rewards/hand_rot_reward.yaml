@@ -1,0 +1,8 @@
+hand_rot_reward:
+  reward_fn_partial: 
+    _partial_: true
+    _target_: isaacgymenvs.utils.rewards.rot_reward
+  args: 
+    - hand_quat
+    - hand_init_quat
+  scale: 0.1

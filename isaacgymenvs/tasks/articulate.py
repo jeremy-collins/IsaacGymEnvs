@@ -43,6 +43,10 @@ class ArticulateTask(VecTask, IsaacGymCameraBase):
         # "object_body_f",  # 3
         # "object_joint_pos_err",  # in [1,2,3]
         # "object_pos_err",  # 3
+        # "hand_pos",  # 3
+        # "hand_quat",  # 3
+        # "hand_init_pos",  # 3
+        # "hand_init_quat",  # 3
     ]
     state_keys = obs_keys.copy()
 
@@ -269,6 +273,9 @@ class ArticulateTask(VecTask, IsaacGymCameraBase):
             self.num_bodies = self.rigid_body_states.shape[1]
 
         self.root_state_tensor = gymtorch.wrap_tensor(actor_root_state_tensor).view(-1, 13)
+
+        self.hand_init_pos = self.root_state_tensor[self.hand_indices+1][:, :3].clone()
+        self.hand_init_quat = self.root_state_tensor[self.hand_indices+1][:, 3:7].clone()
 
         self.num_dofs = self.gym.get_sim_dof_count(self.sim) // self.num_envs
         print("Num dofs: ", self.num_dofs)
@@ -1155,6 +1162,21 @@ class ArticulateTask(VecTask, IsaacGymCameraBase):
                 self.object_dof_lower_limits,
                 self.object_dof_upper_limits,
             ).view(self.num_envs, -1)
+
+        obs_dict["hand_init_pos"] = self.hand_init_pos
+        obs_dict["hand_init_quat"] = self.hand_init_quat
+        obs_dict["hand_pos"] = self.root_state_tensor[self.hand_indices + 1, 0:3] 
+        obs_dict["hand_quat"] = self.root_state_tensor[self.hand_indices + 1, 3:7] 
+        # open and append hand_pos and hand_quat to a npz file for debugging
+        # if os.path.exists("hand_pos_quat.npz"):
+        #     d = np.load("hand_pos_quat.npz")
+        #     hand_pos = np.concatenate([d['hand_pos'], obs_dict["hand_pos"].cpu().numpy()])
+        #     hand_quat = np.concatenate([d['hand_quat'], obs_dict["hand_quat"].cpu().numpy()])
+        # else:
+        #     hand_pos = obs_dict["hand_pos"].cpu().numpy()[:1]
+        #     hand_quat = obs_dict["hand_quat"].cpu().numpy()[:1]
+        # np.savez("hand_pos_quat.npz", hand_pos=hand_pos, hand_quat=hand_quat)
+
 
         obs_dict["hand_palm_pos"] = self.rigid_body_states[:, palm_index, 0:3].view(self.num_envs, -1)
         obs_dict["hand_palm_quat"] = self.rigid_body_states[:, palm_index, 3:7].view(self.num_envs, -1)

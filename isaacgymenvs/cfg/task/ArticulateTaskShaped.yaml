@@ -57,6 +57,7 @@ env:
     action_penalty: ${task.rewards.action_penalty}
     reach_bonus: ${task.rewards.reach_bonus}
     fall_penalty: ${task.rewards.drop_penalty}
+    hand_rot_reward: ${task.rewards.hand_rot_reward}
    
   fallPenalty: 0.0
 
@@ -174,7 +175,7 @@ task:
             setup_only: True # Property will only be randomized once before simulation is started. See Domain Randomization Documentation for more info.
             # schedule: "linear"  # "linear" will scale the current random sample by ``min(current num steps, schedule_steps) / schedule_steps`
             # schedule_steps: 30000
-        rigid_shape_properties:
+        rigid_concatenate:
           friction:
             num_buckets: 250
             range: [0.7, 1.3]
