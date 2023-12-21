@@ -8,6 +8,7 @@ defaults:
     - reach_bonus
     - drop_penalty
     - hand_dist
+    - hand_rot_reward
 
 # used to create the object
 name: ArticulateTask
@@ -56,6 +57,7 @@ env:
     action_penalty: ${task.rewards.action_penalty}
     reach_bonus: ${task.rewards.reach_bonus}
     fall_penalty: ${task.rewards.drop_penalty}
+    hand_rot_reward: ${task.rewards.hand_rot_reward}
    
   fallPenalty: 0.0
 
@@ -68,6 +70,8 @@ env:
   objectDofName: "joint_0"
   objectDofTargetPos: 
     - 0.075  # 0.05 for spray_bottle
+  scaleDofPos: false
+  objectMassBaseOnly: true
   objectMass: 10
   objectStiffness: 3
   objectDamping: 0.1
@@ -75,7 +79,7 @@ env:
   observationType: "full_state" # can be "no_vel", "full_state", "full"
   asymmetric_observations: False
   printNumSuccesses: False
-  maxConsecutiveSuccesses: 0
+  maxConsecutiveSuccesses: 100
 
   asset:
     assetFileName: "urdf/kuka_allegro_description/allegro_grasp.urdf"
