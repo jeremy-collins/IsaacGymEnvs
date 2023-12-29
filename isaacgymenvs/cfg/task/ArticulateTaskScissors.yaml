@@ -57,17 +57,16 @@ env:
     action_penalty: ${task.rewards.action_penalty}
     reach_bonus: ${task.rewards.reach_bonus}
     fall_penalty: ${task.rewards.drop_penalty}
-    hand_rot_reward: ${task.rewards.hand_rot_reward}
    
   fallPenalty: 0.0
 
+  useOneHot: true  
   objectType: 
     # - "dispenser"
-    - "spray_bottle" # can be block, egg or pen
+    - "scissors" # can be block, egg or pen
   objectDofName: "joint_0"
   objectDofTargetPos: 
-    - 0.075  # 0.05 for spray_bottle
-    - 0.08  # 0.05 for spray_bottle
+    - 0.2
   scaleDofPos: false
   objectMass: 10
   objectStiffness: 3
@@ -76,7 +75,10 @@ env:
   observationType: "full_state" # can be "no_vel", "full_state", "full"
   asymmetric_observations: False
   printNumSuccesses: False
-  maxConsecutiveSuccesses: 100
+  maxConsecutiveSuccesses: 0
+
+  # set to True if you use camera sensors in the environment
+  enableCameraSensors: False
 
   asset:
     assetFileName: "urdf/kuka_allegro_description/allegro_grasp_fixed.urdf"
@@ -89,6 +91,7 @@ env:
       - "urdf/objects/spray_bottle/mobility.urdf"
       - "urdf/objects/spray_bottle2/mobility.urdf"
     assetFileNameDispenser: "urdf/objects/dispenser/mobility.urdf"
+    assetFileNameScissors: "urdf/objects/scissors/mobility.urdf"
 
 task:
   randomize: False
@@ -175,7 +178,7 @@ task:
             setup_only: True # Property will only be randomized once before simulation is started. See Domain Randomization Documentation for more info.
             # schedule: "linear"  # "linear" will scale the current random sample by ``min(current num steps, schedule_steps) / schedule_steps`
             # schedule_steps: 30000
-        rigid_concatenate:
+        rigid_shape_properties:
           friction:
             num_buckets: 250
             range: [0.7, 1.3]
@@ -183,9 +186,6 @@ task:
             distribution: "uniform"
             # schedule: "linear"  # "linear" will scale the current random sample by `min(current num steps, schedule_steps) / schedule_steps`
             # schedule_steps: 30000
-
-  # set to True if you use camera sensors in the environment
-  enableCameraSensors: False
 
 sim:
   dt: 0.01667 # 1/60
