@@ -1377,7 +1377,7 @@ class ArticulateTask(VecTask, IsaacGymCameraBase):
             # "rotation": [1, 0, 0, 0],
             "near_plane": 0.1,
             "far_plane": 100,
-            "camera_pose": [[0.0, -0.35, 0.2], [0.0, 0.0, 0.85090352, 0.52532199]],
+            "camera_pose": camera_spec.get("camera_pose", [[0.0, -0.35, 0.2], [0.0, 0.0, 0.85090352, 0.52532199]]),
         }
         self.camera_spec_dict = {camera_config["name"]: OmegaConf.create(camera_config)}
 
