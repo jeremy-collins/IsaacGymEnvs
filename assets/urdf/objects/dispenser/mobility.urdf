@@ -3,49 +3,49 @@
 	<link name="base"/>
 	<link name="link_0">
 		<visual name="mouth-8">
-			<origin xyz="-0.004069706478648613 0 -0.007451467190511252"/>
+			<origin xyz="-0.0007326071661966703 0 -0.0013411640742919854"/>
 			<geometry>
 				<mesh filename="textured_objs/new-0.obj" scale="0.18 0.18 0.18"/>
 			</geometry>
 		</visual>
 		<visual name="mouth-8">
-			<origin xyz="-0.004069706478648613 0 -0.007451467190511252"/>
+			<origin xyz="-0.0007326071661966703 0 -0.0013411640742919854"/>
 			<geometry>
 				<mesh filename="textured_objs/new-1.obj" scale="0.18 0.18 0.18"/>
 			</geometry>
 		</visual>
 		<visual name="mouth-8">
-			<origin xyz="-0.004069706478648613 0 -0.007451467190511252"/>
+			<origin xyz="-0.0007326071661966703 0 -0.0013411640742919854"/>
 			<geometry>
 				<mesh filename="textured_objs/original-3.obj" scale="0.18 0.18 0.18"/>
 			</geometry>
 		</visual>
 		<visual name="mouth-8">
-			<origin xyz="-0.004069706478648613 0 -0.007451467190511252"/>
+			<origin xyz="-0.0007326071661966703 0 -0.0013411640742919854"/>
 			<geometry>
 				<mesh filename="textured_objs/original-4.obj" scale="0.18 0.18 0.18"/>
 			</geometry>
 		</visual>
 		<collision>
-			<origin xyz="-0.004069706478648613 0 -0.007451467190511252"/>
+			<origin xyz="-0.0007326071661966703 0 -0.0013411640742919854"/>
 			<geometry>
 				<mesh filename="textured_objs/new-0.obj" scale="0.18 0.18 0.18"/>
 			</geometry>
 		</collision>
 		<collision>
-			<origin xyz="-0.004069706478648613 0 -0.007451467190511252"/>
+			<origin xyz="-0.0007326071661966703 0 -0.0013411640742919854"/>
 			<geometry>
 				<mesh filename="textured_objs/new-1.obj" scale="0.18 0.18 0.18"/>
 			</geometry>
 		</collision>
 		<collision>
-			<origin xyz="-0.004069706478648613 0 -0.007451467190511252"/>
+			<origin xyz="-0.0007326071661966703 0 -0.0013411640742919854"/>
 			<geometry>
 				<mesh filename="textured_objs/original-3.obj" scale="0.18 0.18 0.18"/>
 			</geometry>
 		</collision>
 		<collision>
-			<origin xyz="-0.004069706478648613 0 -0.007451467190511252"/>
+			<origin xyz="-0.0007326071661966703 0 -0.0013411640742919854"/>
 			<geometry>
 				<mesh filename="textured_objs/original-4.obj" scale="0.18 0.18 0.18"/>
 			</geometry>
@@ -101,7 +101,7 @@
 	</joint>
 	<link name="link_0_helper"/>
 	<joint name="joint_0" type="prismatic">
-		<origin xyz="0.004069706478648613 0 0.007451467190511252"/>
+		<origin xyz="0.0007326071661966703 0 0.0013411640742919854"/>
 		<axis xyz="0 -1 0"/>
 		<child link="link_0_helper"/>
 		<parent link="link_1"/>

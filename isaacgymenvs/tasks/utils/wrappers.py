@@ -42,10 +42,10 @@ class IsaacGymCameraBase:
     #     if self.camera_spec_dict:
     #         # tactile cameras created along with other cameras in create_camera_actors
     #         self.create_camera_actors()
-    #
-    # super().__init__(env)
 
     def create_camera_actors(self):
+        if hasattr(self, "camera_handles_list"):
+            return
         self.camera_handles_list = []
         self.camera_tensors_list = []
         for i in range(self.num_envs):
@@ -53,7 +53,9 @@ class IsaacGymCameraBase:
             env_camera_handles = self.setup_env_cameras(env_ptr, self.camera_spec_dict)
             self.camera_handles_list.append(env_camera_handles)
 
-            env_camera_tensors = self.create_tensors_for_env_cameras(env_ptr, env_camera_handles, self.camera_spec_dict)
+            env_camera_tensors = self.create_tensors_for_env_cameras(
+                env_ptr, env_camera_handles, self.camera_spec_dict
+            )
             self.camera_tensors_list.append(env_camera_tensors)
 
     def setup_env_cameras(self, env_ptr, camera_spec_dict):
@@ -71,7 +73,9 @@ class IsaacGymCameraBase:
             camera_handles[name] = camera_handle
 
             if camera_spec.is_body_camera:
-                actor_handle = self.gym.find_actor_handle(env_ptr, camera_spec.actor_name)
+                actor_handle = self.gym.find_actor_handle(
+                    env_ptr, camera_spec.actor_name
+                )
                 robot_body_handle = self.gym.find_actor_rigid_body_handle(
                     env_ptr, actor_handle, camera_spec.attach_link_name
                 )
@@ -81,18 +85,22 @@ class IsaacGymCameraBase:
                     env_ptr,
                     robot_body_handle,
                     gymapi.Transform(
-                        gymapi.Vec3(*camera_spec.camera_pose[0]), gymapi.Quat(*camera_spec.camera_pose[1])
+                        gymapi.Vec3(*camera_spec.camera_pose[0]),
+                        gymapi.Quat(*camera_spec.camera_pose[1]),
                     ),
                     gymapi.FOLLOW_TRANSFORM,
                 )
             else:
                 transform = gymapi.Transform(
-                    gymapi.Vec3(*camera_spec.camera_pose[0]), gymapi.Quat(*camera_spec.camera_pose[1])
+                    gymapi.Vec3(*camera_spec.camera_pose[0]),
+                    gymapi.Quat(*camera_spec.camera_pose[1]),
                 )
                 self.gym.set_camera_transform(camera_handle, env_ptr, transform)
         return camera_handles
 
-    def create_tensors_for_env_cameras(self, env_ptr, env_camera_handles, camera_spec_dict):
+    def create_tensors_for_env_cameras(
+        self, env_ptr, env_camera_handles, camera_spec_dict
+    ):
         env_camera_tensors = {}
         for name in env_camera_handles:
             camera_handle = env_camera_handles[name]
@@ -107,7 +115,9 @@ class IsaacGymCameraBase:
                     self.sim, env_ptr, camera_handle, gymapi.IMAGE_DEPTH
                 )
             else:
-                raise NotImplementedError(f"Camera type {camera_spec_dict[name].image_type} not supported")
+                raise NotImplementedError(
+                    f"Camera type {camera_spec_dict[name].image_type} not supported"
+                )
 
             # wrap camera tensor in a pytorch tensor
             torch_camera_tensor = gymtorch.wrap_tensor(camera_tensor)
@@ -118,7 +128,13 @@ class IsaacGymCameraBase:
 
     def compute_observations(self):
         cameras = self.get_camera_image_tensors_dict()
-        self.obs_dict["rgb"] = cameras["hand_camera"]
+        camera_name = list(self.camera_spec_dict.keys())[0]
+        if camera_name in self.obs_dict:
+            for camera_name in cameras:
+                self.obs_dict[camera_name][:] = cameras[camera_name]
+        else:
+            self.obs_dict.update(cameras)
+        # self.obs_dict["rgb"] = cameras
 
     def get_camera_image_tensors_dict(self):
         # transforms and information must be communicated from the physics simulation into the graphics system
@@ -135,24 +151,43 @@ class IsaacGymCameraBase:
             camera_spec = self.camera_spec_dict[name]
             if camera_spec["image_type"] == "rgb":
                 num_channels = 3
-                camera_images = torch.zeros(
-                    (self.num_envs, camera_spec.image_size[0], camera_spec.image_size[1], num_channels),
-                    device=self.device,
-                    dtype=torch.uint8,
+                camera_images = self.obs_dict.get(
+                    name,
+                    torch.zeros(
+                        (
+                            self.num_envs,
+                            camera_spec.image_size[0],
+                            camera_spec.image_size[1],
+                            num_channels,
+                        ),
+                        device=self.device,
+                        dtype=torch.uint8,
+                    ),
                 )
                 for id in np.arange(self.num_envs):
-                    camera_images[id] = self.camera_tensors_list[id][name][:, :, :num_channels].clone()
+                    camera_images[id] = self.camera_tensors_list[id][name][
+                        :, :, :num_channels
+                    ].clone()
             elif camera_spec["image_type"] == "depth":
                 num_channels = 1
-                camera_images = torch.zeros(
-                    (self.num_envs, camera_spec.image_size[0], camera_spec.image_size[1]),
-                    device=self.device,
-                    dtype=torch.float,
+                camera_images = self.obs_dict.get(
+                    name,
+                    torch.zeros(
+                        (
+                            self.num_envs,
+                            camera_spec.image_size[0],
+                            camera_spec.image_size[1],
+                        ),
+                        device=self.device,
+                        dtype=torch.float,
+                    ),
                 )
                 for id in np.arange(self.num_envs):
                     # Note that isaac gym returns negative depth
                     # See: https://carbon-gym.gitlab-master-pages.nvidia.com/carbgym/graphics.html?highlight=image_depth#camera-image-types
-                    camera_images[id] = self.camera_tensors_list[id][name][:, :].clone() * -1.0
+                    camera_images[id] = (
+                        self.camera_tensors_list[id][name][:, :].clone() * -1.0
+                    )
                     camera_images[id][camera_images[id] == np.inf] = 0.0
             else:
                 print(f'Image type {camera_spec["image_type"]} not supported!')

@@ -54,6 +54,12 @@ def drop_penalty(object_pos, goal_pos, fall_dist: float = 0.24):
     return torch.where(object_pose_err > fall_dist, torch.ones_like(object_pose_err), torch.zeros_like(object_pose_err))
 
 
+@torch.jit.script
+def tipped_penalty(object_rot, goal_rot, fall_dist: float = 0.24):
+    object_pose_err = rot_dist(object_rot, goal_rot).view(-1, 1)
+    return torch.where(object_pose_err > fall_dist, torch.ones_like(object_pose_err), torch.zeros_like(object_pose_err))
+
+
 def parse_reward_params(reward_params_dict):
     rew_params = {}
     for key, value in reward_params_dict.items():

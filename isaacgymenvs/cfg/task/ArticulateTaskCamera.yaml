@@ -11,7 +11,7 @@ defaults:
     - hand_rot_reward
 
 # used to create the object
-name: ArticulateTask
+name: ArticulateTaskCamera
 
 physics_engine: ${..physics_engine}
 
@@ -38,12 +38,7 @@ env:
   startPositionNoise: 0.01
   startRotationNoise: 0.0
 
-  resetPositionNoise: # 0.01   # x, z dim noise
-    range: [0.0, 0.05]
-    schedule: "linear" 
-    schedule_steps: 300000
-    operation: "additive"  # not needed
-    distribution: "uniform"  # not needed
+  resetPositionNoise: 0.01
   resetRotationNoise: 0.0
   resetDofPosRandomInterval: 0.2
   resetDofVelRandomInterval: 0.0
@@ -62,21 +57,18 @@ env:
     action_penalty: ${task.rewards.action_penalty}
     reach_bonus: ${task.rewards.reach_bonus}
     fall_penalty: ${task.rewards.drop_penalty}
-    hand_rot_reward: ${task.rewards.hand_rot_reward}
    
   fallPenalty: 0.0
 
+  useOneHot: true  
   objectType: 
     # - "dispenser"
     - "spray_bottle" # can be block, egg or pen
-  objectInstance:
-    spray_bottle: 
-      - 0
   objectDofName: "joint_0"
   objectDofTargetPos: 
     - 0.075  # 0.05 for spray_bottle
+    - 0.08  # 0.05 for spray_bottle
   scaleDofPos: false
-  objectMassBaseOnly: false
   objectMass: 10
   objectStiffness: 3
   objectDamping: 0.1
@@ -84,14 +76,17 @@ env:
   observationType: "full_state" # can be "no_vel", "full_state", "full"
   asymmetric_observations: False
   printNumSuccesses: False
-  maxConsecutiveSuccesses: 100
-  useOneHot: True
+  maxConsecutiveSuccesses: 0
 
   # set to True if you use camera sensors in the environment
-  enableCameraSensors: False
+  enableCameraSensors: True
+  use_dict_obs: False
+  # obsDims:  # need to include this if use_dict_obs = True 
+  #   obs: (100,)
+  #   hand_camera: (64, 64, 3)
 
   asset:
-    assetFileName: "urdf/kuka_allegro_description/allegro_grasp.urdf"
+    assetFileName: "urdf/kuka_allegro_description/allegro_grasp_fixed.urdf"
     assetFileNameBlock: "urdf/objects/cube_multicolor_allegro.urdf"
     assetFileNameEgg: "mjcf/open_ai_assets/hand/egg.xml"
     assetFileNamePen: "mjcf/open_ai_assets/hand/pen.xml"
@@ -101,6 +96,7 @@ env:
       - "urdf/objects/spray_bottle/mobility.urdf"
       - "urdf/objects/spray_bottle2/mobility.urdf"
     assetFileNameDispenser: "urdf/objects/dispenser/mobility.urdf"
+    assetFileNameScissors: "urdf/objects/scissors/mobility.urdf"
 
 task:
   randomize: False

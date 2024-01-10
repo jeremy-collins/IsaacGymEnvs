@@ -71,7 +71,7 @@ env:
   objectMass: 10
   objectStiffness: 3
   objectDamping: 0.1
-  fixObjectBase: false
+  fixObjectBase: true
   observationType: "full_state" # can be "no_vel", "full_state", "full"
   asymmetric_observations: False
   printNumSuccesses: False

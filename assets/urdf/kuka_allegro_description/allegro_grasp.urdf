@@ -72,7 +72,7 @@
     <child link="allegro_mount_dummy_link_y"/>
   </joint>
   <joint name="allegro_mount_joint_y" type="prismatic">
-    <axis xyz="0 1 0"/>
+    <axis xyz="0 0 1"/>
     <limit effort="100." lower="-0.3" upper="0.3" velocity="2."/>
     <parent link="allegro_mount_dummy_link_y"/>
     <child link="allegro_mount_dummy_link_z"/>

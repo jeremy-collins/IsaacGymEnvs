@@ -47,7 +47,7 @@ env:
   fallPenalty: 0.0
 
   objectType: "dispenser" # can be block, egg or pen
-  objectDofName: "joint_2"
+  objectDofName: "joint_0"
   objectDofTargetPos: 0.015  # 0.05 for spray_bottle, 0.015 for dispenser
   objectStiffness: 3.
   objectDamping: 0.5 

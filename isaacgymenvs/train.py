@@ -104,6 +104,7 @@ def launch_rlg_hydra(cfg: DictConfig):
     from isaacgymenvs.learning import amp_players
     from isaacgymenvs.learning import amp_models
     from isaacgymenvs.learning import amp_network_builder
+    from isaacgymenvs.learning import actor_network_builder
     import isaacgymenvs
 
     time_str = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
@@ -165,25 +166,44 @@ def launch_rlg_hydra(cfg: DictConfig):
     if dict_cls:
         obs_spec = {}
         actor_net_cfg = cfg.train.params.network
-        obs_spec["obs"] = {
-            "names": list(actor_net_cfg.inputs.keys()),
-            "concat": not actor_net_cfg.name == "complex_net",
-            "space_name": "observation_space",
-        }
-        if "central_value_config" in cfg.train.params.config:
-            critic_net_cfg = cfg.train.params.config.central_value_config.network
-            obs_spec["states"] = {
-                "names": list(critic_net_cfg.inputs.keys()),
-                "concat": not critic_net_cfg.name == "complex_net",
-                "space_name": "state_space",
+        if actor_net_cfg.name == "actor_critic_dict":
+            input_keys = set(cfg.train.params.network.input_preprocessors.keys())
+            if "obsDims" in cfg.task.env:
+                env_keys = set(cfg.task.env.obsDims.keys())
+                assert len(input_keys - env_keys) == 0, "Input keys must be a subset of env keys"
+            else:
+                assert not cfg.task.env.use_dict_obs
+                env_keys = set(["obs"] + list(input_keys))
+
+            obs_spec["obs"] = {
+                "names": list(env_keys),
+                "concat": False,
+                "space_name": "observation_space",
             }
+
+        else:
+            obs_spec["obs"] = {
+                "names": list(actor_net_cfg.inputs.keys()),
+                "concat": not actor_net_cfg.name == "complex_net",
+                "space_name": "observation_space",
+            }
+            if "central_value_config" in cfg.train.params.config:
+                critic_net_cfg = cfg.train.params.config.central_value_config.network
+                obs_spec["states"] = {
+                    "names": list(critic_net_cfg.inputs.keys()),
+                    "concat": not critic_net_cfg.name == "complex_net",
+                    "space_name": "state_space",
+                }
 
         vecenv.register(
             "RLGPU",
             lambda config_name, num_actors, **kwargs: ComplexObsRLGPUEnv(config_name, num_actors, obs_spec, **kwargs),
         )
     else:
-        vecenv.register("RLGPU", lambda config_name, num_actors, **kwargs: RLGPUEnv(config_name, num_actors, **kwargs))
+        vecenv.register(
+            "RLGPU",
+            lambda config_name, num_actors, **kwargs: RLGPUEnv(config_name, num_actors, **kwargs),
+        )
 
     rlg_config_dict = omegaconf_to_dict(cfg.train)
     rlg_config_dict = preprocess_train_config(cfg, rlg_config_dict)
@@ -208,8 +228,12 @@ def launch_rlg_hydra(cfg: DictConfig):
         runner.player_factory.register_builder(
             "amp_continuous", lambda **kwargs: amp_players.AMPPlayerContinuous(**kwargs)
         )
-        model_builder.register_model("continuous_amp", lambda network, **kwargs: amp_models.ModelAMPContinuous(network))
+        model_builder.register_model(
+            "continuous_amp",
+            lambda network, **kwargs: amp_models.ModelAMPContinuous(network),
+        )
         model_builder.register_network("amp", lambda **kwargs: amp_network_builder.AMPBuilder())
+        model_builder.register_network("actor_critic_dict", lambda **kwargs: actor_network_builder.A2CBuilder())
 
         return runner
 
@@ -222,7 +246,8 @@ def launch_rlg_hydra(cfg: DictConfig):
     # dump config dict
     if not cfg.test:
         experiment_dir = os.path.join(
-            "runs", cfg.train.params.config.name + "_{date:%d-%H-%M-%S}".format(date=datetime.now())
+            "runs",
+            cfg.train.params.config.name + "_{date:%d-%H-%M-%S}".format(date=datetime.now()),
         )
 
         os.makedirs(experiment_dir, exist_ok=True)
