@@ -32,6 +32,8 @@ params:
               name: default
           regularizer:
             name: 'None'
+          spatial_softmax:
+            normalize: True
           convs:    
             - filters: 64
               kernel_size: 7
