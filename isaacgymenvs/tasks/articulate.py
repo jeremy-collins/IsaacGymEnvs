@@ -1586,7 +1586,7 @@ class ArticulateTask(VecTask, IsaacGymCameraBase):
         assert (
             obs_tensor.shape[-1] == self.num_obs_dict[self.obs_type]
         ), f"Obs shape {obs_tensor.shape} not correct!"
-        self.obs_dict["obs"][:] = obs_tensor
+        self.obs_buf[:] = obs_tensor
         if self.use_image_obs:
             IsaacGymCameraBase.compute_observations(self)
 
@@ -1606,9 +1606,9 @@ class ArticulateTask(VecTask, IsaacGymCameraBase):
             "actor_name": camera_spec.get("actor_name", "hand"),
             "attach_link_name": camera_spec.get("attach_link_name", "palm_link"),
             "use_collision_geometry": True,
-            "width": camera_spec["width"],
-            "height": camera_spec["height"],
-            "image_size": [camera_spec["width"], camera_spec["height"]],
+            "width": camera_spec.get("width", 64),
+            "height": camera_spec.get("height", 64),
+            "image_size": [camera_spec.get("width", 64), camera_spec.get("height", 64)],
             "image_type": "rgb",
             "horizontal_fov": 90.0,
             # "position": [-0.1, 0.15, 0.15],
