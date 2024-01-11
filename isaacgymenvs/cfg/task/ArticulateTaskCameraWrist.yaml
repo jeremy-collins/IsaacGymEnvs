@@ -79,6 +79,13 @@ env:
   printNumSuccesses: False
   maxConsecutiveSuccesses: 0
 
+  # camera specifications
+  camera_spec:
+    is_body_camera: True
+    width: 64
+    height: 64
+    camera_pose: [[0,0,0], [0.7071,0,0,0.7071]]
+
   # set to True if you use camera sensors in the environment
   enableCameraSensors: True
   use_dict_obs: False

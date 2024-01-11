@@ -609,14 +609,17 @@ class ArticulateTask(VecTask, IsaacGymCameraBase):
             )
         )
         self.fingertip_indices = [
-            self.gym.find_asset_rigid_body_index(allegro_hand_asset, name) for name in self.fingertips
+            self.gym.find_asset_rigid_body_index(allegro_hand_asset, name)
+            for name in self.fingertips
         ]
         self.shadow_hand_rb_handles = list(range(self.num_shadow_hand_bodies))
         self.object_rb_handles = [
             list(
                 range(
-                    self.num_shadow_hand_bodies * (i + 1) + sum(self.num_object_bodies[:i]),
-                    self.num_shadow_hand_bodies * (i + 1) + sum(self.num_object_bodies[: i + 1]),
+                    self.num_shadow_hand_bodies * (i + 1)
+                    + sum(self.num_object_bodies[:i]),
+                    self.num_shadow_hand_bodies * (i + 1)
+                    + sum(self.num_object_bodies[: i + 1]),
                 )
             )
             for i in range(len(self.num_object_bodies))
@@ -654,10 +657,16 @@ class ArticulateTask(VecTask, IsaacGymCameraBase):
                     0,
                 ]
             )
-            self.gym.set_actor_dof_properties(env_ptr, shadow_hand_actor, shadow_hand_dof_props)
-            hand_idx = self.gym.get_actor_index(env_ptr, shadow_hand_actor, gymapi.DOMAIN_SIM)
+            self.gym.set_actor_dof_properties(
+                env_ptr, shadow_hand_actor, shadow_hand_dof_props
+            )
+            hand_idx = self.gym.get_actor_index(
+                env_ptr, shadow_hand_actor, gymapi.DOMAIN_SIM
+            )
             self.hand_indices.append(hand_idx)
-            self.palm_index = self.gym.find_asset_rigid_body_index(allegro_hand_asset, "palm_link")
+            self.palm_index = self.gym.find_asset_rigid_body_index(
+                allegro_hand_asset, "palm_link"
+            )
 
             # create fingertip force-torque sensors
             # if self.obs_type == "full_state" or self.bs:
@@ -669,7 +678,9 @@ class ArticulateTask(VecTask, IsaacGymCameraBase):
             #     self.gym.enable_actor_dof_force_sensors(env_ptr, shadow_hand_actor)
 
             # add object
-            object_handle = self.gym.create_actor(env_ptr, object_asset, object_start_pose, "object", i, 0, 1)
+            object_handle = self.gym.create_actor(
+                env_ptr, object_asset, object_start_pose, "object", i, 0, 1
+            )
             self.object_actor_handles.append(object_handle)
             rb_props = self.gym.get_actor_rigid_body_properties(env_ptr, object_handle)
             if self.object_mass_base_only:
@@ -744,9 +755,9 @@ class ArticulateTask(VecTask, IsaacGymCameraBase):
                 # tactile cameras created along with other cameras in create_camera_actors
                 self.create_camera_actors()
 
-        self.object_init_state = to_torch(self.object_init_state, device=self.device, dtype=torch.float).view(
-            self.num_envs, 13
-        )
+        self.object_init_state = to_torch(
+            self.object_init_state, device=self.device, dtype=torch.float
+        ).view(self.num_envs, 13)
         self.goal_states = self.object_init_state.clone()
         self.goal_states[:, self.up_axis_idx] += 0.04
         self.goal_init_state = self.goal_states.clone()
@@ -859,8 +870,7 @@ class ArticulateTask(VecTask, IsaacGymCameraBase):
             1.0,
             (len(env_ids), self.num_shadow_hand_dofs * 2 + 13),
             device=self.device,
-        )
-        # * 0
+        )  # * 0
 
         # reset start object target poses
         self.reset_target_pose(env_ids)
@@ -883,7 +893,7 @@ class ArticulateTask(VecTask, IsaacGymCameraBase):
         object_pose_noise[:, 2] = torch.clamp(object_pose_noise[:, 2], 0, torch.inf)
         object_pose_noise[:, 3:] = 0.0
         self.root_state_tensor[self.object_indices[env_ids]] += object_pose_noise
-        rand_floats = rand_floats[:, 13:]
+        rand_floats = rand_floats[:, 13:] * 0
 
         # reset object velocity
         self.root_state_tensor[self.object_indices[env_ids], 7:13] = torch.zeros_like(
@@ -1305,7 +1315,9 @@ class ArticulateTask(VecTask, IsaacGymCameraBase):
         obs_dict["fingertip_rot"] = obs_dict["fingertip_pose_vel"][:, :, 3:7]
         obs_dict["fingertip_vel"] = obs_dict["fingertip_pose_vel"][:, :, 7:10]
         obs_dict["actions"] = self.actions
-        obs_dict["hand_joint_pos_err"] = self.prev_targets[:, self.actuated_dof_indices] - obs_dict["hand_joint_pos"]
+        obs_dict["hand_joint_pos_err"] = (
+            self.prev_targets[:, self.actuated_dof_indices] - obs_dict["hand_joint_pos"]
+        )
 
         obs_dict["object_type"] = (
             to_torch(
