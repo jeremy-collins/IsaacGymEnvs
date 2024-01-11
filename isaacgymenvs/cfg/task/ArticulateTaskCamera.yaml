@@ -62,10 +62,11 @@ env:
 
   useOneHot: true  
   objectType: 
-    # - "dispenser"
+    - "scissors"
     - "spray_bottle" # can be block, egg or pen
   objectDofName: "joint_0"
   objectDofTargetPos: 
+    - 0.2
     - 0.075  # 0.05 for spray_bottle
     - 0.08  # 0.05 for spray_bottle
   scaleDofPos: false

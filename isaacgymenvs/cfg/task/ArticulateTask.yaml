@@ -69,7 +69,7 @@ env:
     - 0.075  # 0.05 for spray_bottle
     - 0.08  # 0.05 for spray_bottle
   scaleDofPos: false
-  objectMass: 10
+  objectMass: 1
   objectStiffness: 3
   objectDamping: 0.1
   fixObjectBase: false
