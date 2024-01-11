@@ -1,17 +1,6 @@
 defaults:
+  - ArticulateBase
   - _self_
-  - rewards:
-    - action_penalty
-    - object_pos_err
-    - object_dof_pos_err
-    - task_reward
-    - reach_bonus
-    - drop_penalty
-    - hand_dist
-    - hand_rot_reward
-
-# used to create the object
-name: ArticulateTaskCamera
 
 physics_engine: ${..physics_engine}
 
@@ -19,35 +8,6 @@ physics_engine: ${..physics_engine}
 env:
   numEnvs: ${resolve_default:16384,${...num_envs}}
   numActions: 22
-  envSpacing: 0.75
-  episodeLength: 600
-  enableDebugVis: False
-  aggregateMode: 1
-
-  clipObservations: 5.0
-  clipActions: 1.0
-
-  stiffnessScale: 1.0
-  forceLimitScale: 1.0
-
-  useRelativeControl: False
-  dofSpeedScale: 20.0
-  actionsMovingAverage: 1.0
-  controlFrequencyInv: 2 # 30 Hz
-
-  startPositionNoise: 0.01
-  startRotationNoise: 0.0
-
-  resetPositionNoise: 0.01
-  resetRotationNoise: 0.0
-  resetDofPosRandomInterval: 0.2
-  resetDofVelRandomInterval: 0.0
-
-  # Random forces applied to the object
-  forceScale: 0.0
-  forceProbRange: [0.001, 0.1]
-  forceDecay: 0.99
-  forceDecayInterval: 0.08
 
   # reward -> dictionary
   successTolerance: 0.005
@@ -60,42 +20,46 @@ env:
    
   fallPenalty: 0.0
 
-  useOneHot: true  
   objectType: 
-    # - "dispenser"
-    - "scissors" # can be block, egg or pen
-  objectDofName: "joint_0"
+    # - "scissors"
+    - "spray_bottle" # can be block, egg or pen
+  objectInstance:
+    spray_bottle: 
+      - 1
   objectDofTargetPos: 
-    - 0.2
+    # - 0.2
+    # - 0.075  # 0.05 for spray_bottle
+    - 0.08  # 0.05 for spray_bottle
   scaleDofPos: false
   objectMass: 1
   objectStiffness: 3
   objectDamping: 0.1
-  fixObjectBase: true
+  fixObjectBase: false
+  load_default_pos: true
   observationType: "full_state" # can be "no_vel", "full_state", "full"
   asymmetric_observations: False
   printNumSuccesses: False
   maxConsecutiveSuccesses: 0
 
   # set to True if you use camera sensors in the environment
-  enableCameraSensors: True
-  useDictObs: False
-  # obsDims:  # need to include this if use_dict_obs = True 
-  #   obs: (100,)
-  #   hand_camera: (64, 64, 3)
-
-  asset:
-    assetFileName: "urdf/kuka_allegro_description/allegro_grasp_fixed.urdf"
-    assetFileNameBlock: "urdf/objects/cube_multicolor_allegro.urdf"
-    assetFileNameEgg: "mjcf/open_ai_assets/hand/egg.xml"
-    assetFileNamePen: "mjcf/open_ai_assets/hand/pen.xml"
-    assetFileNameBottle: "urdf/objects/bottle/mobility.urdf"
-    assetFileNamePillBottle: "urdf/objects/pill_bottle/mobility.urdf"
-    assetFileNameSprayBottle: 
-      - "urdf/objects/spray_bottle/mobility.urdf"
-      - "urdf/objects/spray_bottle2/mobility.urdf"
-    assetFileNameDispenser: "urdf/objects/dispenser/mobility.urdf"
-    assetFileNameScissors: "urdf/objects/scissors/mobility.urdf"
+  enableCameraSensors: False
+  useDictObs: True
+  obsKeys:  # need to include this if use_dict_obs = True 
+    - hand_joint_pos
+    - hand_joint_vel
+    - object_pos
+    - object_quat
+    - goal_pos
+    - goal_quat
+    - object_lin_vel
+    - object_ang_vel
+    - object_dof_pos
+    - goal_dof_pos
+    - hand_palm_pos
+    - hand_palm_quat
+    - object_type_one_hot
+    - object_instance_one_hot
+    - actions
 
 task:
   randomize: False

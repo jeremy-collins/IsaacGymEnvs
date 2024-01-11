@@ -19,11 +19,11 @@ env:
 
   useOneHot: true  
   objectType: 
-    # - "scissors"
+    - "scissors"
     - "spray_bottle" # can be block, egg or pen
   objectDofName: "joint_0"
   objectDofTargetPos: 
-    # - 0.2
+    - 0.2
     - 0.075  # 0.05 for spray_bottle
     - 0.08  # 0.05 for spray_bottle
   scaleDofPos: false
@@ -35,32 +35,12 @@ env:
   observationType: "full_state" # can be "no_vel", "full_state", "full"
   asymmetric_observations: False
   printNumSuccesses: False
+  maxConsecutiveSuccesses: 0
 
   # set to True if you use camera sensors in the environment
   enableCameraSensors: True
-  camera_spec: 
-    hand_camera: ${task.env.cameraSpec.fixed_camera}
-  useDictObs: True
-  obsKeys:  # need to include this if use_dict_obs = True 
-    - hand_joint_pos
-    - hand_joint_vel
-    - object_pos
-    - object_quat
-    - goal_pos
-    - goal_quat
-    - object_lin_vel
-    - object_ang_vel
-    - object_dof_pos
-    - goal_dof_pos
-    - hand_palm_pos
-    - hand_palm_quat
-    - object_type_one_hot
-    - object_instance_one_hot
-    - actions
-    - hand_camera
-
-  # need to include obsDims if use_dict_obs = True 
-  # e.g.
-  # obsDims:
+  useDictObs: False
+  # obsDims:  # need to include this if use_dict_obs = True 
   #   obs: (100,)
   #   hand_camera: (64, 64, 3)
+

@@ -122,7 +122,7 @@ class Env(ABC):
         self.num_observations = config["env"].get("numObservations", 0)
         self.num_states = config["env"].get("numStates", 0)
         self.use_dict_obs = config["env"].get(
-            "use_dict_obs", False
+            "useDictObs", False
         )  # used for multi-agent environments
 
         self.obs_dims = config["env"].get("obsDims", None)
@@ -527,10 +527,9 @@ class VecTask(Env):
             }
         else:
             obs_and_states_dict = self.obs_dict
-
-        obs_and_states_dict["obs"] = torch.clamp(
-            self.obs_buf, -self.clip_obs, self.clip_obs
-        ).to(self.rl_device)
+            obs_and_states_dict["obs"] = torch.clamp(
+                self.obs_buf, -self.clip_obs, self.clip_obs
+            ).to(self.rl_device)
 
         # asymmetric actor-critic
         if self.num_states > 0:

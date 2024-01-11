@@ -10,6 +10,8 @@ OmegaConf.register_new_resolver("contains", lambda x, y: x.lower() in y.lower())
 OmegaConf.register_new_resolver("if", lambda pred, a, b: a if pred else b)
 OmegaConf.register_new_resolver("resolve_default", lambda default, arg: default if arg == "" else arg)
 OmegaConf.register_new_resolver("eval", lambda x: eval(x))
+OmegaConf.register_new_resolver("dict", lambda a, b: dict([(k, a[k]) for k in b]))
+
 
 
 def resolve_child(default, node, arg):

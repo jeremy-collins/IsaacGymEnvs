@@ -20,7 +20,12 @@ SUPPORTED_PARTNET_OBJECTS = [
     "pill_bottle",
     "bottle",
     "scissors",
+    "pliers"
+    "stapler",
 ]
+
+NUM_OBJECT_TYPES = 7
+NUM_OBJECT_INSTANCES = 5  # per type
 
 
 class ArticulateTask(VecTask, IsaacGymCameraBase):
@@ -72,6 +77,9 @@ class ArticulateTask(VecTask, IsaacGymCameraBase):
     ):
         self.cfg = cfg
 
+        self.dict_obs_cls = self.cfg["env"].get("useDictObs", False)
+        if self.dict_obs_cls:
+            assert "obsDims" in self.cfg["env"], "obsDims must be specified for dict obs"
         self.reward_params = rewards.parse_reward_params(cfg["env"]["rewardParams"])
         assert "fall_penalty" in self.reward_params
         assert "reach_bonus" in self.reward_params
@@ -172,7 +180,8 @@ class ArticulateTask(VecTask, IsaacGymCameraBase):
                 num_objects += len(self.object_instance[object_type])
             else:
                 num_objects += len(self.asset_files_dict[object_type])
-            max_obj_instances = max(max_obj_instances, len(self.asset_files_dict[object_type]))
+
+        max_obj_instances =  max([len(self.asset_files_dict[object_type]) for object_type in self.asset_files_dict])
 
         use_object_types = obj_types > 1
         use_object_instances = use_object_instances or max_obj_instances > 1
@@ -184,15 +193,16 @@ class ArticulateTask(VecTask, IsaacGymCameraBase):
             else "objectDofTargetPos must be a list of length 1"
         )
         self.obs_type = self.cfg["env"]["observationType"]
-        full_state_dim = 98 if self.cfg["env"]["numActions"] == 22 else 83
-        no_vel_dim = 89 if self.cfg["env"]["numActions"] == 22 else 74
+        assert self.cfg["env"]["numActions"] in [17, 22], "Only 17 and 22 DoF hands are supported"
+        full_state_dim = 98 if self.cfg["env"]["numActions"] == 22 else 85
+        no_vel_dim = 89 if self.cfg["env"]["numActions"] == 22 else 76
         self.use_one_hot = self.cfg["env"].get("useOneHot", False)
 
         # TODO: handle object instances
         if use_object_types:
             added_dims = 1
             if self.use_one_hot:
-                added_dims = len(SUPPORTED_PARTNET_OBJECTS)
+                added_dims = NUM_OBJECT_TYPES # len(SUPPORTED_PARTNET_OBJECTS)
             full_state_dim, no_vel_dim = (
                 full_state_dim + added_dims,
                 no_vel_dim + added_dims,
@@ -202,7 +212,7 @@ class ArticulateTask(VecTask, IsaacGymCameraBase):
         if use_object_instances:
             added_dims = 1
             if self.use_one_hot:
-                added_dims = max_obj_instances
+                added_dims = NUM_OBJECT_INSTANCES 
             full_state_dim, no_vel_dim = (
                 full_state_dim + added_dims,
                 no_vel_dim + added_dims,
@@ -220,7 +230,11 @@ class ArticulateTask(VecTask, IsaacGymCameraBase):
         num_states = 0
         if self.asymmetric_obs:
             num_states = self.num_obs_dict["full_state"]
-        self.cfg["env"]["numObservations"] = self.num_obs_dict[self.obs_type]
+
+        # obs_buf is empty if using dict obs
+        num_obs = self.num_obs_dict[self.obs_type] if not self.dict_obs_cls else 0
+
+        self.cfg["env"]["numObservations"] = num_obs
         self.cfg["env"]["numStates"] = num_states
 
         if self.obs_type == "full_state_no_vel":
@@ -952,9 +966,10 @@ class ArticulateTask(VecTask, IsaacGymCameraBase):
         self.successes[env_ids] = 0
 
     def reset(self):
-        ret = VecTask.reset(self)
+        self.compute_observations()
         if self.use_image_obs:
             IsaacGymCameraBase.compute_observations(self)
+        ret = VecTask.reset(self)
         return ret
 
     def pre_physics_step(self, actions):
@@ -1240,7 +1255,7 @@ class ArticulateTask(VecTask, IsaacGymCameraBase):
             palm_index = [self.palm_index + b for b in self.env_num_bodies]
         else:
             palm_index = self.palm_index
-        obs_dict = {}
+        obs_dict = {} if not self.use_dict_obs else self.obs_dict
         obs_dict["hand_joint_pos"] = unscale(
             self.shadow_hand_dof_pos,
             self.shadow_hand_dof_lower_limits,
@@ -1331,24 +1346,24 @@ class ArticulateTask(VecTask, IsaacGymCameraBase):
 
         object_instance_one_hot = torch.nn.functional.one_hot(
             obs_dict["object_instance"].to(torch.int64),
-            num_classes=self.max_obj_instances,
+            num_classes=NUM_OBJECT_INSTANCES,
         ).squeeze(-2)
         object_type_one_hot = torch.nn.functional.one_hot(
             obs_dict["object_type"].to(torch.int64),
-            num_classes=len(SUPPORTED_PARTNET_OBJECTS),
+            num_classes=NUM_OBJECT_TYPES,
         ).squeeze(-2)
         obs_dict["object_instance_one_hot"] = object_instance_one_hot.to(self.device)
         obs_dict["object_type_one_hot"] = object_type_one_hot.to(self.device)
 
         self.current_obs_dict = obs_dict
+        if not self.use_dict_obs:
         # for key in self.obs_keys:
         #     if key in obs_dict:
         #         self.obs_dict[key][:] = obs_dict[key]
-
-        obs_tensor = self.obs_dict_to_tensor(obs_dict, self.obs_keys)
-        # check obs shape
-        assert obs_tensor.shape[-1] == self.num_obs_dict[self.obs_type], f"Obs shape {obs_tensor.shape} not correct!"
-        self.obs_buf[:] = obs_tensor
+            obs_tensor = self.obs_dict_to_tensor(obs_dict, self.obs_keys)
+            # check obs shape
+            assert obs_tensor.shape[-1] == self.num_obs_dict[self.obs_type], f"Obs shape {obs_tensor.shape} not correct!"
+            self.obs_buf[:] = obs_tensor
         if self.use_image_obs:
             IsaacGymCameraBase.compute_observations(self)
 
@@ -1360,25 +1375,28 @@ class ArticulateTask(VecTask, IsaacGymCameraBase):
         return obs_tensor
 
     def get_default_camera_specs(self):
-        camera_spec = self.cfg["env"].get("camera_spec", dict(width=64, height=64))
-        camera_config = {
-            "name": camera_spec.get("name", "hand_camera"),
-            "is_body_camera": camera_spec.get("is_body_camera", False),
-            "actor_name": camera_spec.get("actor_name", "hand"),
-            "attach_link_name": camera_spec.get("attach_link_name", "palm_link"),
-            "use_collision_geometry": True,
-            "width": camera_spec.get("width", 64),
-            "height": camera_spec.get("height", 64),
-            "image_size": [camera_spec.get("width", 64), camera_spec.get("height", 64)],
-            "image_type": "rgb",
-            "horizontal_fov": 90.0,
-            # "position": [-0.1, 0.15, 0.15],
-            # "rotation": [1, 0, 0, 0],
-            "near_plane": 0.1,
-            "far_plane": 100,
-            "camera_pose": camera_spec.get("camera_pose", [[0.0, -0.35, 0.2], [0.0, 0.0, 0.85090352, 0.52532199]]),
-        }
-        self.camera_spec_dict = {camera_config["name"]: OmegaConf.create(camera_config)}
+        camera_specs = self.cfg["env"].get("camera_spec", {"hand_camera": dict(width=64, height=64)})
+        self.camera_spec_dict = {}
+        for k in camera_specs:
+            camera_spec = camera_specs[k]
+            camera_config = {
+                "name": k,
+                "is_body_camera": camera_spec.get("is_body_camera", False),
+                "actor_name": camera_spec.get("actor_name", "hand"),
+                "attach_link_name": camera_spec.get("attach_link_name", "palm_link"),
+                "use_collision_geometry": True,
+                "width": camera_spec.get("width", 64),
+                "height": camera_spec.get("height", 64),
+                "image_size": [camera_spec.get("width", 64), camera_spec.get("height", 64)],
+                "image_type": "rgb",
+                "horizontal_fov": 90.0,
+                # "position": [-0.1, 0.15, 0.15],
+                # "rotation": [1, 0, 0, 0],
+                "near_plane": 0.1,
+                "far_plane": 100,
+                "camera_pose": camera_spec.get("camera_pose", [[0.0, -0.35, 0.2], [0.0, 0.0, 0.85090352, 0.52532199]]),
+            }
+            self.camera_spec_dict[k] = OmegaConf.create(camera_config)
 
 
 class ArticulateTaskCamera(ArticulateTask):
