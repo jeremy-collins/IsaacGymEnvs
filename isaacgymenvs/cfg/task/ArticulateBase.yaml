@@ -18,6 +18,7 @@ defaults:
 # used to create the object
 name: ${if:${task.env.enableCameraSensors},ArticulateTaskCamera,ArticulateTask}
 
+physics_engine: ${..physics_engine}
 env:
   numEnvs: ${resolve_default:16384,${...num_envs}}
   numActions: 22
