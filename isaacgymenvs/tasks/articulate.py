@@ -211,7 +211,7 @@ class ArticulateTask(VecTask, IsaacGymCameraBase):
         if use_object_instances:
             added_dims = 1
             if self.use_one_hot:
-                added_dims = NUM_OBJECT_INSTANCES
+                added_dims = self.cfg["env"].get("numObjectInstances", NUM_OBJECT_INSTANCES)
             full_state_dim, no_vel_dim = (
                 full_state_dim + added_dims,
                 no_vel_dim + added_dims,
@@ -1345,7 +1345,7 @@ class ArticulateTask(VecTask, IsaacGymCameraBase):
 
         object_instance_one_hot = torch.nn.functional.one_hot(
             obs_dict["object_instance"].to(torch.int64),
-            num_classes=NUM_OBJECT_INSTANCES,
+            num_classes=self.cfg["env"].get("numObjectInstances", NUM_OBJECT_INSTANCES),
         ).squeeze(-2)
         object_type_one_hot = torch.nn.functional.one_hot(
             obs_dict["object_type"].to(torch.int64),

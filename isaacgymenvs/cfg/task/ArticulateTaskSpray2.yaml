@@ -53,6 +53,7 @@ env:
   forceProbRange: [0.001, 0.1]
   forceDecay: 0.99
   forceDecayInterval: 0.08
+  load_default_pos: false
 
   # reward -> dictionary
   successTolerance: 0.005
