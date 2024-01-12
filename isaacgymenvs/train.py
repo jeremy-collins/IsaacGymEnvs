@@ -170,7 +170,9 @@ def launch_rlg_hydra(cfg: DictConfig):
             input_keys = set(cfg.train.params.network.input_preprocessors.keys())
             if "obsDims" in cfg.task.env:
                 env_keys = set(cfg.task.env.obsDims.keys())
-                assert len(input_keys - env_keys) == 0, f"Input keys must be a subset of env keys, missing {input_keys-env_keys}"
+                assert (
+                    len(input_keys - env_keys) == 0
+                ), f"Input keys must be a subset of env keys, missing {input_keys-env_keys}"
             else:
                 assert not cfg.task.env.use_dict_obs
                 env_keys = set(["obs"] + list(input_keys))

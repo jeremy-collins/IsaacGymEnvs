@@ -1,20 +1,11 @@
 defaults:
-  - ArticulateBase
+  - ArticulateTaskBase
   - _self_
 
 physics_engine: ${..physics_engine}
 
 # if given, will override the device setting in gym.
 env:
-  numEnvs: ${resolve_default:16384,${...num_envs}}
-  numActions: 22
-
-  resetPositionNoise: # 0.01   # x, z dim noise
-    range: [0.0, 0.05]
-    schedule: "linear" 
-    schedule_steps: 300000
-    operation: "additive"  # not needed
-    distribution: "uniform"  # not needed
   # reward -> dictionary
   successTolerance: 0.005
   rewardParams: 
@@ -23,26 +14,22 @@ env:
     action_penalty: ${task.rewards.action_penalty}
     reach_bonus: ${task.rewards.reach_bonus}
     fall_penalty: ${task.rewards.drop_penalty}
-    hand_rot_reward: ${task.rewards.hand_rot_reward}
    
   fallPenalty: 0.0
 
+  useOneHot: true  
   objectType: 
-    # - "scissors"
+    # - "dispenser"
     - "spray_bottle" # can be block, egg or pen
-  objectInstance:
-    spray_bottle: 
-      - 0
+  objectDofName: "joint_0"
   objectDofTargetPos: 
-    # - 0.2
     - 0.075  # 0.05 for spray_bottle
-    # - 0.08  # 0.05 for spray_bottle
+    - 0.08  # 0.05 for spray_bottle
   scaleDofPos: false
   objectMass: 1
   objectStiffness: 3
   objectDamping: 0.1
   fixObjectBase: false
-  load_default_pos: true
   observationType: "full_state" # can be "no_vel", "full_state", "full"
   asymmetric_observations: False
   printNumSuccesses: False

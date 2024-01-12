@@ -88,6 +88,9 @@ env:
   printNumSuccesses: False
   maxConsecutiveSuccesses: 100
   useOneHot: true
+  dict_obs_cls: true
+  obsDims: 
+    obs: [103]
 
   asset:
     assetFileName: "urdf/kuka_allegro_description/allegro_grasp_fixed.urdf" # fixed z-axis

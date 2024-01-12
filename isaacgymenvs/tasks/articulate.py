@@ -20,7 +20,7 @@ SUPPORTED_PARTNET_OBJECTS = [
     "pill_bottle",
     "bottle",
     "scissors",
-    "pliers"
+    "pliers",
     "stapler",
 ]
 
@@ -158,7 +158,6 @@ class ArticulateTask(VecTask, IsaacGymCameraBase):
             if f"assetFileName{obj_name}" in self.cfg["env"]["asset"]:
                 obj_assets = self.cfg["env"]["asset"][f"assetFileName{obj_name}"]
                 if obj in self.object_instance:
-                    # obj_assets = [obj_assets[i] for i in self.object_instance[obj]]
                     use_object_instances = True
                 if isinstance(obj_assets, str):
                     obj_assets = [obj_assets]
@@ -181,7 +180,7 @@ class ArticulateTask(VecTask, IsaacGymCameraBase):
             else:
                 num_objects += len(self.asset_files_dict[object_type])
 
-        max_obj_instances =  max([len(self.asset_files_dict[object_type]) for object_type in self.asset_files_dict])
+        max_obj_instances = max([len(self.asset_files_dict[object_type]) for object_type in self.asset_files_dict])
 
         use_object_types = obj_types > 1
         use_object_instances = use_object_instances or max_obj_instances > 1
@@ -202,7 +201,7 @@ class ArticulateTask(VecTask, IsaacGymCameraBase):
         if use_object_types:
             added_dims = 1
             if self.use_one_hot:
-                added_dims = NUM_OBJECT_TYPES # len(SUPPORTED_PARTNET_OBJECTS)
+                added_dims = NUM_OBJECT_TYPES  # len(SUPPORTED_PARTNET_OBJECTS)
             full_state_dim, no_vel_dim = (
                 full_state_dim + added_dims,
                 no_vel_dim + added_dims,
@@ -212,7 +211,7 @@ class ArticulateTask(VecTask, IsaacGymCameraBase):
         if use_object_instances:
             added_dims = 1
             if self.use_one_hot:
-                added_dims = NUM_OBJECT_INSTANCES 
+                added_dims = NUM_OBJECT_INSTANCES
             full_state_dim, no_vel_dim = (
                 full_state_dim + added_dims,
                 no_vel_dim + added_dims,
@@ -1357,12 +1356,14 @@ class ArticulateTask(VecTask, IsaacGymCameraBase):
 
         self.current_obs_dict = obs_dict
         if not self.use_dict_obs:
-        # for key in self.obs_keys:
-        #     if key in obs_dict:
-        #         self.obs_dict[key][:] = obs_dict[key]
+            # for key in self.obs_keys:
+            #     if key in obs_dict:
+            #         self.obs_dict[key][:] = obs_dict[key]
             obs_tensor = self.obs_dict_to_tensor(obs_dict, self.obs_keys)
             # check obs shape
-            assert obs_tensor.shape[-1] == self.num_obs_dict[self.obs_type], f"Obs shape {obs_tensor.shape} not correct!"
+            assert (
+                obs_tensor.shape[-1] == self.num_obs_dict[self.obs_type]
+            ), f"Obs shape {obs_tensor.shape} not correct!"
             self.obs_buf[:] = obs_tensor
         if self.use_image_obs:
             IsaacGymCameraBase.compute_observations(self)
