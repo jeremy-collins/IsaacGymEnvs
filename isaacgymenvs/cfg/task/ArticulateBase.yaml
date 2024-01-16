@@ -102,8 +102,15 @@ env:
     assetFileNameSprayBottle: 
       - "urdf/objects/spray_bottle/mobility.urdf"
       - "urdf/objects/spray_bottle2/mobility.urdf"
+      - "urdf/objects/spray_bottle3/mobility.urdf"
+      - "urdf/objects/spray_bottle4/mobility.urdf"
+      - "urdf/objects/spray_bottle5/mobility.urdf"
     assetFileNameDispenser: "urdf/objects/dispenser/mobility.urdf"
-    assetFileNameScissors: "urdf/objects/scissors/mobility.urdf"
+    assetFileNameScissors: 
+      - "urdf/objects/scissors/mobility.urdf"
+      - "urdf/objects/scissors2/mobility.urdf"
+      - "urdf/objects/scissors3/mobility.urdf"
+      - "urdf/objects/scissors4/mobility.urdf"
 
 
 task:

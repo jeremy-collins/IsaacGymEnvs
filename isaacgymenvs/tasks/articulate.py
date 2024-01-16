@@ -1276,7 +1276,6 @@ class ArticulateTask(VecTask, IsaacGymCameraBase):
             self.shadow_hand_dof_lower_limits,
             self.shadow_hand_dof_upper_limits,
         )
-        breakpoint() 
         obs_dict["hand_joint_vel"] = self.vel_obs_scale * self.shadow_hand_dof_vel
         obs_dict["object_pose"] = self.root_state_tensor[self.object_indices, 0:7]
         obs_dict["object_pos"] = self.root_state_tensor[self.object_indices, 0:3]
