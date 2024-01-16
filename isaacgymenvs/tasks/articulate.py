@@ -236,10 +236,13 @@ class ArticulateTask(VecTask, IsaacGymCameraBase):
         self.cfg["env"]["numObservations"] = num_obs
         self.cfg["env"]["numStates"] = num_states
 
-        if self.obs_type == "full_state_no_vel":
-            self.obs_keys = filter(lambda x: "vel" not in x, self.obs_keys)
-        if self.obs_type == "full":
-            self.obs_keys.remove("hand_palm_quat")
+        if not self.dict_obs_cls:
+            if self.obs_type == "full_state_no_vel":
+                self.obs_keys = filter(lambda x: "vel" not in x, self.obs_keys)
+            if self.obs_type == "full":
+                self.obs_keys.remove("hand_palm_quat")
+        else:
+            self.obs_keys = self.cfg["env"]["obsKeys"]
 
         # use VecTask init function
         VecTask.__init__(
@@ -867,6 +870,9 @@ class ArticulateTask(VecTask, IsaacGymCameraBase):
 
     def reset_idx(self, env_ids, goal_env_ids=None):
         # generate random values
+        from isaacgymenvs.utils.utils import set_seed
+
+        set_seed(42)
         rand_floats = torch_rand_float(
             -1.0,
             1.0,
@@ -1254,7 +1260,7 @@ class ArticulateTask(VecTask, IsaacGymCameraBase):
             palm_index = [self.palm_index + b for b in self.env_num_bodies]
         else:
             palm_index = self.palm_index
-        obs_dict = {} if not self.use_dict_obs else self.obs_dict
+            obs_dict = {} if not self.use_dict_obs else self.obs_dict
         obs_dict["hand_joint_pos"] = unscale(
             self.shadow_hand_dof_pos,
             self.shadow_hand_dof_lower_limits,

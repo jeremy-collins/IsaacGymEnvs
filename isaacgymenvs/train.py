@@ -45,6 +45,7 @@ def preprocess_train_config(cfg, config_dict):
     train_cfg = config_dict["params"]["config"]
 
     train_cfg["device"] = cfg.rl_device
+    train_cfg["device_name"] = cfg.rl_device
 
     train_cfg["population_based_training"] = cfg.pbt.enabled
     train_cfg["pbt_idx"] = cfg.pbt.policy_idx if cfg.pbt.enabled else None
@@ -161,7 +162,9 @@ def launch_rlg_hydra(cfg: DictConfig):
     )
 
     ige_env_cls = isaacgym_task_map[cfg.task_name]
-    dict_cls = ige_env_cls.dict_obs_cls if hasattr(ige_env_cls, "dict_obs_cls") and ige_env_cls.dict_obs_cls else False
+    dict_cls = False
+    if hasattr(ige_env_cls, "dict_obs_cls"):
+        dict_cls = ige_env_cls.dict_obs_cls # or cfg.task.env.get("useDictObs", False)
 
     if dict_cls:
         obs_spec = {}
