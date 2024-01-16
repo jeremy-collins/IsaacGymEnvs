@@ -350,9 +350,10 @@ class RLGPUEnv(vecenv.IVecEnv):
             print("Saving next trajectory to: ", self.save_traj_path)
 
     def reset(self):
-        if self.traj_idx != 0 and self.num_traj > 0:
-            self.save_trajectory()
-        self.traj_idx = 0
+        if self.log_trajectory:
+            if self.traj_idx != 0 and self.num_traj > 0:
+                self.save_trajectory()
+            self.traj_idx = 0
         return self.env.reset()
 
     def reset_done(self):

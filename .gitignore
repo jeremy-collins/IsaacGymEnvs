@@ -26,11 +26,11 @@ _doxygen
 /isaacgymenvs/ingenuity.xml
 *logs*
 nn/
-runs/
+*runs*
 .idea
 outputs/
 *.hydra*
 /isaacgymenvs/wandb
 multirun/
-isaacgymenvs/runs
+# isaacgymenvs/runs
 .git-copy/
