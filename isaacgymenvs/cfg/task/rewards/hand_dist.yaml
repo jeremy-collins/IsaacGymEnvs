@@ -1,0 +1,9 @@
+hand_dist:
+  reward_fn_partial: 
+    _partial_: true
+    _target_: isaacgymenvs.utils.rewards.hand_dist
+  args: 
+    - object_pos
+    - hand_palm_pos
+    - fingertip_pos
+  scale: -10.0

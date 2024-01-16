@@ -1,0 +1,9 @@
+reach_bonus:
+  reward_fn_partial: 
+    _partial_: true
+    _target_: isaacgymenvs.utils.rewards.reach_bonus
+  args: 
+    - object_dof_pos
+    - goal_dof_pos
+    - success_tolerance
+  scale: 250.0

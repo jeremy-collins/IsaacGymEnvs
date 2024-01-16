@@ -1,0 +1,9 @@
+drop_penalty:
+  reward_fn_partial: 
+    _partial_: true
+    _target_: isaacgymenvs.utils.rewards.drop_penalty
+  args: 
+    - object_pos
+    - goal_pos
+    - 0.24 # fall distance
+  scale: -50.0  # fall penalty

@@ -1,4 +1,4 @@
-from typing import Union
+from typing import Union, Dict, Any, Tuple
 from isaacgym import gymtorch
 
 import numpy as np
@@ -13,6 +13,8 @@ from isaacgymenvs.utils import rewards
 from isaacgymenvs.tasks.utils import IsaacGymCameraBase
 from omegaconf import OmegaConf
 from .base.vec_task import VecTask
+
+import time
 
 SUPPORTED_PARTNET_OBJECTS = [
     "dispenser",
@@ -272,6 +274,8 @@ class ArticulateTask(VecTask, IsaacGymCameraBase):
         self.actions = torch.zeros(
             self.num_envs, self.cfg["env"]["numActions"], device=self.device
         )
+
+        self.prev_time = time.time()
 
         self.init_sim()
 
@@ -1146,7 +1150,7 @@ class ArticulateTask(VecTask, IsaacGymCameraBase):
             IsaacGymCameraBase.compute_observations(self)
         return ret
 
-    def pre_physics_step(self, actions):
+    def pre_physics_step(self, actions, get_manipulability=False):
         self.extras = {}
         env_ids = self.reset_buf.nonzero(as_tuple=False).squeeze(-1)
         goal_env_ids = self.reset_goal_buf.nonzero(as_tuple=False).squeeze(-1)
@@ -1228,11 +1232,12 @@ class ArticulateTask(VecTask, IsaacGymCameraBase):
             self.sim, gymtorch.unwrap_tensor(self.cur_targets)
         )
 
-    def post_physics_step(self):
+    def post_physics_step(self, get_manipulability=False):
         self.progress_buf += 1
 
-        self.compute_observations()
+        self.compute_observations(get_manipulability=get_manipulability)
         self.compute_reward()
+        print('reward', self.current_rew_dict)
         self.extras["consecutive_successes"] = self.reward_extras[
             "consecutive_successes"
         ].mean()
@@ -1443,7 +1448,7 @@ class ArticulateTask(VecTask, IsaacGymCameraBase):
                 [0.1, 0.1, 0.85],
             )
 
-    def compute_observations(self):
+    def compute_observations(self, get_manipulability=False):
         self.gym.refresh_dof_state_tensor(self.sim)
         self.gym.refresh_actor_root_state_tensor(self.sim)
         self.gym.refresh_rigid_body_state_tensor(self.sim)
@@ -1576,6 +1581,11 @@ class ArticulateTask(VecTask, IsaacGymCameraBase):
         obs_dict["object_instance_one_hot"] = object_instance_one_hot.to(self.device)
         obs_dict["object_type_one_hot"] = object_type_one_hot.to(self.device)
 
+        if get_manipulability:
+            obs_dict["manipulability"] = self.get_manipulability_fd(f=self.manip_step, obs_dict=obs_dict, obs_keys=["object_pose"], action=torch.zeros_like(self.actions))
+            # obs_dict["manipulability"] = torch.zeros((self.num_envs, 1, 1), device=self.device) # placeholder
+            # print("manipulability", obs_dict["manipulability"])
+
         self.current_obs_dict = obs_dict
         # for key in self.obs_keys:
         #     if key in obs_dict:
@@ -1618,6 +1628,287 @@ class ArticulateTask(VecTask, IsaacGymCameraBase):
             "camera_pose": [[0.0, -0.35, 0.2], [0.0, 0.0, 0.85090352, 0.52532199]],
         }
         self.camera_spec_dict = {camera_config["name"]: OmegaConf.create(camera_config)}
+
+    def step(
+        self, actions: torch.Tensor, get_manipulability: bool = True
+    ) -> Tuple[Dict[str, torch.Tensor], torch.Tensor, torch.Tensor, Dict[str, Any]]:
+        """Step the physics of the environment.
+
+        Args:
+            actions: actions to apply
+        Returns:
+            Observations, rewards, resets, info
+            Observations are dict of observations (currently only one member called 'obs')
+        """
+
+        # timing stuff
+        curr_time = time.time()
+        self.dt = curr_time - self.prev_time
+        print("dt", self.dt)
+        self.prev_time = curr_time
+
+
+        # randomize actions
+        if self.dr_randomizations.get("actions", None):
+            actions = self.dr_randomizations["actions"]["noise_lambda"](actions)
+
+        action_tensor = torch.clamp(actions, -self.clip_actions, self.clip_actions)
+        # apply actions
+        self.pre_physics_step(action_tensor, get_manipulability=get_manipulability)
+
+        # step physics and render each frame
+        for i in range(self.control_freq_inv):
+            if self.force_render:
+                self.render()
+            self.gym.simulate(self.sim)
+
+        # to fix!
+        if self.device == "cpu":
+            self.gym.fetch_results(self.sim, True)
+
+        # compute observations, rewards, resets, ...
+        self.post_physics_step(get_manipulability=get_manipulability)
+
+        # fill time out buffer: set to 1 if we reached the max episode length AND the reset buffer is 1. Timeout == 1 makes sense only if the reset buffer is 1.
+        self.timeout_buf = (self.progress_buf >= self.max_episode_length - 1) & (
+            self.reset_buf != 0
+        )
+
+        # randomize observations
+        if self.dr_randomizations.get("observations", None):
+            self.obs_buf = self.dr_randomizations["observations"]["noise_lambda"](
+                self.obs_buf
+            )
+
+        self.extras["time_outs"] = self.timeout_buf.to(self.rl_device)
+
+        self.obs_dict["obs"] = torch.clamp(
+            self.obs_buf, -self.clip_obs, self.clip_obs
+        ).to(self.rl_device)
+
+        # asymmetric actor-critic
+        if self.num_states > 0:
+            self.obs_dict["states"] = self.get_state()
+
+        print('rew_buf', self.rew_buf.shape)
+
+        return (
+            self.obs_dict,
+            self.rew_buf.to(self.rl_device),
+            self.reset_buf.to(self.rl_device),
+            self.extras,
+        )
+
+    def manip_step(
+        self, actions: torch.Tensor, get_manipulability: bool = True
+    ) -> Tuple[Dict[str, torch.Tensor], torch.Tensor, torch.Tensor, Dict[str, Any]]:
+        """Unrolled step function for debugging manipulability function.
+
+        Args:
+            actions: actions to apply
+        Returns:
+            Observations, rewards, resets, info
+            Observations are dict of observations (currently only one member called 'obs')
+        """
+
+        # # randomize actions
+        # if self.dr_randomizations.get("actions", None):
+        #     actions = self.dr_randomizations["actions"]["noise_lambda"](actions)
+
+        action_tensor = torch.clamp(actions, -self.clip_actions, self.clip_actions)
+        # apply actions
+        # self.pre_physics_step(action_tensor, simulate=simulate)
+        ######### UNROLLING PRE-PHYSICS STEP
+
+        self.extras = {}
+
+        # handle resets
+        # env_ids = self.reset_buf.nonzero(as_tuple=False).squeeze(-1)
+        # goal_env_ids = self.reset_goal_buf.nonzero(as_tuple=False).squeeze(-1)
+
+        # if only goals need reset, then call set API
+        # if len(goal_env_ids) > 0 and len(env_ids) == 0:
+        #     self.reset_target_pose(goal_env_ids, apply_reset=True)
+
+        # if goals need reset in addition to other envs, call set API in reset()
+        # elif len(goal_env_ids) > 0:
+        #     self.reset_target_pose(goal_env_ids)
+
+        # if len(env_ids) > 0:
+        #     self.reset_idx(env_ids, goal_env_ids)
+
+        # modify self.cur_targets and self.prev_targets
+        self.actions = action_tensor.clone().to(self.device)
+        self.assign_act(self.actions)
+
+        # adding random force perturbations
+        # # get rigid body forces
+        # force_noise_scale = self.get_or_sample_noise_scale(self.force_scale)
+        # if force_noise_scale > 0.0:
+        #     self.rb_forces *= torch.pow(
+        #         self.force_decay, self.dt / self.force_decay_interval
+        #     )
+
+        #     # apply new forces
+        #     force_indices = (
+        #         torch.rand(self.num_envs, device=self.device) < self.random_force_prob
+        #     ).nonzero()
+        #     self.rb_forces[force_indices, self.object_rb_handles, :] = (
+        #         torch.randn_like(
+        #             self.rb_forces[force_indices, self.object_rb_handles, :],
+        #             device=self.device,
+        #         )
+        #         * self.object_rb_masses.unsqueeze(-1).unsqueeze(0)
+        #         * force_noise_scale
+        #     )
+
+        #     self.gym.apply_rigid_body_force_tensors(
+        #         self.sim,
+        #         gymtorch.unwrap_tensor(self.rb_forces),
+        #         None,
+        #         gymapi.LOCAL_SPACE,
+        #     )
+
+        #########
+
+        # step physics and render each frame
+        for i in range(self.control_freq_inv): # 2 for 60 Hz
+        # for i in range(1):
+            # if self.force_render:
+            #     self.render()
+            self.gym.simulate(self.sim)
+
+        # to fix!
+        if self.device == "cpu":
+            self.gym.fetch_results(self.sim, True)
+
+        # compute observations, rewards, resets, ...
+        # self.post_physics_step(simulate=simulate)
+            
+        ######### UNROLLING POST-PHYSICS STEP
+            
+        # self.progress_buf += 1
+
+        self.compute_observations()
+        # self.compute_reward()
+        # print('reward', self.current_rew_dict)
+        # self.extras["consecutive_successes"] = self.reward_extras[
+        #     "consecutive_successes"
+        # ].mean()
+        # self.extras["goal_dist"] = torch.norm(
+        #     self.current_obs_dict["object_pos"] - self.current_obs_dict["goal_pos"],
+        #     p=2,
+        #     dim=-1,
+        # )
+        # self.extras["hand_dist"] = torch.norm(
+        #     self.current_obs_dict["hand_palm_pos"]
+        #     - self.current_obs_dict["object_pos"],
+        #     p=2,
+        #     dim=-1,
+        # )
+        # self.extras["fingertip_dist"] = torch.norm(
+        #     self.current_obs_dict["fingertip_pos"]
+        #     - self.current_obs_dict["object_pos"].unsqueeze(1),
+        #     p=2,
+        #     dim=-1,
+        # ).sum(-1)
+        # self.extras["full_hand_dist"] = (
+        #     self.extras["hand_dist"] + self.extras["fingertip_dist"]
+        # )
+
+        # self.extras["success"] = self._check_success().flatten()
+
+        # if self.print_success_stat and self.reset_buf.sum() > 0:
+        #     self.total_resets = self.total_resets + self.reset_buf.sum()
+        #     direct_average_successes = self.total_successes + self.successes.sum()
+        #     self.total_successes = (
+        #         self.total_successes + (self.successes * self.reset_buf).sum()
+        #     )
+
+            # The direct average shows the overall result more quickly, but slightly undershoots long term
+            # policy performance.
+            # print(
+            #     "Direct average consecutive successes = {:.1f}".format(
+            #         direct_average_successes / (self.total_resets + self.num_envs)
+            #     )
+            # )
+            # if self.total_resets > 0:
+            #     print(
+            #         "Post-Reset average consecutive successes = {:.1f}".format(
+            #             self.total_successes / self.total_resets
+            #         )
+            #     )
+
+        # if self.viewer and self.debug_viz:
+        #     self.debug_visualization()
+
+        #########
+
+        # fill time out buffer: set to 1 if we reached the max episode length AND the reset buffer is 1. Timeout == 1 makes sense only if the reset buffer is 1.
+        # self.timeout_buf = (self.progress_buf >= self.max_episode_length - 1) & (
+        #     self.reset_buf != 0
+        # )
+
+        # # randomize observations
+        # if self.dr_randomizations.get("observations", None):
+        #     self.obs_buf = self.dr_randomizations["observations"]["noise_lambda"](
+        #         self.obs_buf
+        #     )
+
+        # self.extras["time_outs"] = self.timeout_buf.to(self.rl_device)
+
+        # self.obs_dict["obs"] = torch.clamp(
+        #     self.obs_buf, -self.clip_obs, self.clip_obs
+        # ).to(self.rl_device)
+
+        # # asymmetric actor-critic
+        # if self.num_states > 0:
+        #     self.obs_dict["states"] = self.get_state()
+
+        return (
+            self.current_obs_dict,
+            None, # self.rew_buf.to(self.rl_device),
+            None, # self.reset_buf.to(self.rl_device),
+            None # self.extras,
+        )
+
+    def get_manipulability_fd(self, f, obs_dict, obs_keys, action, eps=1e-4):
+        ''' Compute the finite difference jacobian to compute manipulability
+
+        Args:
+            f (function): dynamics function
+            obs_keys: list of keys to obs_dict
+            action: action
+            eps: finite difference step. Defaults to 1e-4.
+        
+        '''
+        obs = self.obs_dict_to_tensor(obs_dict, obs_keys)
+        bs = action.shape[0]
+        input_dim = action.shape[1]
+        output_dim = obs.shape[1]
+        manipulability_fd = torch.empty((bs, output_dim, input_dim), dtype=torch.float64, device=self.device)
+
+        print('obs', obs.shape)
+        print('action', action.shape)
+        print('manipulability_fd', manipulability_fd.shape)
+
+        for i in range(input_dim):
+            action[:, i] += eps # perturbing the input (x + eps)
+
+            obs_dict_1, _, _, _ = f(action, get_manipulability=True)
+            action[:, i] -= 2 * eps # perturbing the input the other way (x - eps)
+
+            obs_dict_2, _, _, _ = f(action, get_manipulability=True)
+            action[:, i] += eps # set the input back to initial value
+
+            # TODO: get the observations from both next_state_1 and next_state_2
+            next_state_1 = self.obs_dict_to_tensor(obs_dict_1, obs_keys)
+            next_state_2 = self.obs_dict_to_tensor(obs_dict_2, obs_keys)
+
+            # doutput/dinput
+            manipulability_fd[:, :, i] = (next_state_1 - next_state_2) / (2 * eps) # each col = doutput[:]/dinput[i]
+
+        return manipulability_fd
 
 
 class ArticulateTaskCamera(ArticulateTask):

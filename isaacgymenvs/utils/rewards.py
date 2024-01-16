@@ -48,6 +48,24 @@ def drop_penalty(object_pos, goal_pos, fall_dist: float = 0.24):
     object_pose_err = torch.linalg.norm(object_pos - goal_pos, dim=-1).view(-1, 1) 
     return torch.where(object_pose_err > fall_dist, torch.ones_like(object_pose_err), torch.zeros_like(object_pose_err))
 
+@torch.jit.script
+def manipulability_reward(object_pos): # (object_state, robot_state):
+    return torch.ones_like(object_pos)
+
+@torch.jit.script
+def manipulability_frobenius_norm(manipulability):
+    # returns the spectral norm of the manipulability matrix. The first dimension is the batch dimension
+    return torch.linalg.norm(manipulability, dim=(-2, -1), ord='fro')
+
+@torch.jit.script
+def manipulability_nuclear_norm(manipulability):
+    # returns the spectral norm of the manipulability matrix. The first dimension is the batch dimension
+    return torch.linalg.norm(manipulability, dim=(-2, -1), ord='nuc')
+
+@torch.jit.script
+def manipulability_spectral_norm(manipulability):
+    # returns the spectral norm of the manipulability matrix. The first dimension is the batch dimension
+    return torch.linalg.norm(manipulability, dim=(-2, -1), ord=2)
 
 def parse_reward_params(reward_params_dict):
     rew_params = {}
@@ -62,4 +80,5 @@ def parse_reward_params(reward_params_dict):
         else:
             function, arguments, coefficient = value
         rew_params[key] = (function, arguments, coefficient)
+    print("Reward parameters:", rew_params)
     return rew_params

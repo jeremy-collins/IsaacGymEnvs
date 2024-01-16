@@ -1,0 +1,8 @@
+task_reward:
+  reward_fn_partial: 
+    _partial_: true
+    _target_: isaacgymenvs.utils.rewards.l2_dist_exp_normalized
+  args: 
+    - object_dof_pos
+    - goal_dof_pos
+  scale: 1

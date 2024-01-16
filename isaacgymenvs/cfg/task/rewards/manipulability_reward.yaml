@@ -1,0 +1,9 @@
+manipulability_reward:
+  reward_fn_partial: 
+    _partial_: true
+    _target_: isaacgymenvs.utils.rewards.manipulability_frobenius_norm
+  args:
+    - manipulability
+    # - object_dof_pos
+    # - goal_dof_pos
+  scale: 1
