@@ -329,14 +329,13 @@ class RLGPUEnv(vecenv.IVecEnv):
 
     def step(self, actions):
         obs,rew,done,info = self.env.step(actions)
-        if self.log_trajectory:
+        if self.log_trajectory and self.num_traj > 0:
             for k in self.traj_buffers:
                 self.traj_buffers[k][self.traj_idx] = obs["obs"][k]
             self.traj_buffers["actions"][self.traj_idx] = actions
             self.traj_idx += 1
             if self.traj_idx == self.max_traj_len and self.num_traj > 0:
                 self.save_trajectory()
-                self.num_traj -= 1
                 self.traj_idx = 0
         return obs, rew, done, info
 
@@ -346,10 +345,12 @@ class RLGPUEnv(vecenv.IVecEnv):
         del self.traj_buffers
         self.traj_buffers = self.create_traj_buffers()
         self.traj_num += 1
-        print("Saving next trajectory to: ", self.save_traj_path)
+        self.num_traj -= 1
+        if self.num_traj > 0:
+            print("Saving next trajectory to: ", self.save_traj_path)
 
     def reset(self):
-        if self.traj_idx != 0:
+        if self.traj_idx != 0 and self.num_traj > 0:
             self.save_trajectory()
         self.traj_idx = 0
         return self.env.reset()
