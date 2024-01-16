@@ -22,6 +22,9 @@ env:
   objectType: 
     # - "dispenser"
     - "scissors" # can be block, egg or pen
+  objectInstance:
+    scissors:
+      - 0
   objectDofName: "joint_0"
   objectDofTargetPos: 
     - 0.2
