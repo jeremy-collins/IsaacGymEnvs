@@ -280,6 +280,16 @@ class ArticulateTask(VecTask, IsaacGymCameraBase):
         dof_state_tensor = self.gym.acquire_dof_state_tensor(self.sim)
         rigid_body_tensor = self.gym.acquire_rigid_body_state_tensor(self.sim)
 
+        if self.cfg["env"].get("saveRigidBodyState", False):
+            assert self.device == "cpu", "saveRigidBodyState only works with CPU tensors!"
+            initial_state = np.copy(self.gym.get_sim_rigid_body_states(self.sim, gymapi.STATE_ALL))
+            np.save("initial_state.npy", initial_state)
+        
+        if self.cfg["env"].get("loadRigidBodyState", False):
+            assert self.device == "cpu", "saveRigidBodyState only works with CPU tensors!"
+            initial_state = np.load("initial_state.npy")
+            self.gym.set_sim_rigid_body_states(self.sim, initial_state, gymapi.STATE_ALL)
+
         if self.obs_type == "full_state" or self.asymmetric_obs:
             #     sensor_tensor = self.gym.acquire_force_sensor_tensor(self.sim)
             #     self.vec_sensor_tensor = gymtorch.wrap_tensor(sensor_tensor).view(self.num_envs, self.num_fingertips * 6)
@@ -1266,6 +1276,7 @@ class ArticulateTask(VecTask, IsaacGymCameraBase):
             self.shadow_hand_dof_lower_limits,
             self.shadow_hand_dof_upper_limits,
         )
+        breakpoint() 
         obs_dict["hand_joint_vel"] = self.vel_obs_scale * self.shadow_hand_dof_vel
         obs_dict["object_pose"] = self.root_state_tensor[self.object_indices, 0:7]
         obs_dict["object_pos"] = self.root_state_tensor[self.object_indices, 0:3]
