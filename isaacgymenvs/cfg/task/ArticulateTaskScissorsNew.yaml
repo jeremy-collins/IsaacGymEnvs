@@ -25,9 +25,15 @@ env:
   objectInstance:
     scissors:
       - 0
+      # - 1
+      # - 2
+      # - 3
   objectDofName: "joint_0"
   objectDofTargetPos: 
     - 0.2
+    # - -0.36
+    # - 0.6
+    # - -0.75
   scaleDofPos: false
   objectMass: 1
   objectStiffness: 3

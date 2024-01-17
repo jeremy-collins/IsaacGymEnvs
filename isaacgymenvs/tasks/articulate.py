@@ -1270,7 +1270,7 @@ class ArticulateTask(VecTask, IsaacGymCameraBase):
             palm_index = [self.palm_index + b for b in self.env_num_bodies]
         else:
             palm_index = self.palm_index
-            obs_dict = {} if not self.use_dict_obs else self.obs_dict
+        obs_dict = {} if not self.use_dict_obs else self.obs_dict
         obs_dict["hand_joint_pos"] = unscale(
             self.shadow_hand_dof_pos,
             self.shadow_hand_dof_lower_limits,
