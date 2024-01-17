@@ -289,6 +289,7 @@ class ArticulateTask(VecTask, IsaacGymCameraBase):
             assert self.device == "cpu", "saveRigidBodyState only works with CPU tensors!"
             initial_state = np.load("initial_state.npy")
             self.gym.set_sim_rigid_body_states(self.sim, initial_state, gymapi.STATE_ALL)
+            self.gym.simulate(self.sim)
 
         if self.obs_type == "full_state" or self.asymmetric_obs:
             #     sensor_tensor = self.gym.acquire_force_sensor_tensor(self.sim)
