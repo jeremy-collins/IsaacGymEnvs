@@ -506,7 +506,7 @@ class ArticulateTask(VecTask, IsaacGymCameraBase):
             if self.object_damping:
                 object_dof_props["damping"][object_target_dof_idx] = self.object_damping
             object_asset_options.disable_gravity = True
-            object_asset_options.fix_base_link = False
+            object_asset_options.fix_base_link = True
             goal_asset = self.gym.load_asset(self.sim, asset_root, object_asset_file, object_asset_options)
             return object_asset, goal_asset, object_dof_props
 

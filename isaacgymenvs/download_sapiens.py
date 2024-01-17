@@ -1,6 +1,6 @@
 import os
 
-token = os.environ.get("SAPIEN_TOKEN")
+token = os.environ.get("SAPIEN_API_TOKEN")
 
 import sapien
 import argparse
