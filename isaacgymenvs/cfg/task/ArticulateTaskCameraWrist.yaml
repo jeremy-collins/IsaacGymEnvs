@@ -1,83 +1,10 @@
 defaults:
-  - ArticulateBase
+  - ArticulateTaskCamera
   - _self_
-
-# used to create the object
-name: ArticulateTaskCamera
-
-physics_engine: ${..physics_engine}
 
 # if given, will override the device setting in gym.
 env:
-  numEnvs: ${resolve_default:16384,${...num_envs}}
-  numActions: 22
-  envSpacing: 0.75
-  episodeLength: 600
-  enableDebugVis: False
-  aggregateMode: 1
-
-  clipObservations: 5.0
-  clipActions: 1.0
-
-  stiffnessScale: 1.0
-  forceLimitScale: 1.0
-
-  useRelativeControl: False
-  dofSpeedScale: 20.0
-  actionsMovingAverage: 1.0
-  controlFrequencyInv: 2 # 30 Hz
-
-  startPositionNoise: 0.01
-  startRotationNoise: 0.0
-
-  resetPositionNoise: 0.01
-  resetRotationNoise: 0.0
-  resetDofPosRandomInterval: 0.2
-  resetDofVelRandomInterval: 0.0
-
-  # Random forces applied to the object
-  forceScale: 0.0
-  forceProbRange: [0.001, 0.1]
-  forceDecay: 0.99
-  forceDecayInterval: 0.08
-
-  # reward -> dictionary
-  successTolerance: 0.005
-  rewardParams: 
-    task_rew: ${task.rewards.task_reward}
-    hand_dist: ${task.rewards.hand_dist}
-    action_penalty: ${task.rewards.action_penalty}
-    reach_bonus: ${task.rewards.reach_bonus}
-    fall_penalty: ${task.rewards.drop_penalty}
-   
-  fallPenalty: 0.0
-
-  useOneHot: true  
-  objectType: 
-    # - "dispenser"
-    - "spray_bottle" # can be block, egg or pen
-  objectDofName: "joint_0"
-  objectDofTargetPos: 
-    - 0.075  # 0.05 for spray_bottle
-    - 0.08  # 0.05 for spray_bottle
-  scaleDofPos: false
-  objectMass: 1
-  objectStiffness: 3
-  objectDamping: 0.1
-  fixObjectBase: false
-  load_default_pos: true
-  observationType: "full_state" # can be "no_vel", "full_state", "full"
-  asymmetric_observations: False
-  printNumSuccesses: False
-  maxConsecutiveSuccesses: 0
-
   # camera specifications
   # set to True if you use camera sensors in the environment
-  enableCameraSensors: True
   camera_spec: 
     hand_camera: ${task.env.cameraSpec.wrist_camera}
-
-  useDictObs: False
-  # obsDims:  # need to include this if use_dict_obs = True 
-  #   obs: (100,)
-  #   hand_camera: (64, 64, 3)

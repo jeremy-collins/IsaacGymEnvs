@@ -522,7 +522,7 @@ class VecTask(Env):
         if self.use_dict_obs:
             obs_and_states_dict = {}
             obs_and_states_dict["obs"] = {
-                k: torch.clamp(self.obs_dict[k], -self.clip_obs, self.clip_obs)
+                k: self.obs_dict[k] if self.obs_dict[k].dtype == torch.uint8 else torch.clamp(self.obs_dict[k], -self.clip_obs, self.clip_obs)
                 for k in self.obs_dims
             }
         else:
@@ -572,7 +572,7 @@ class VecTask(Env):
         if self.use_dict_obs:
             obs_and_states_dict = dict()
             obs_and_states_dict["obs"] = {
-                k: torch.clamp(self.obs_dict[k], -self.clip_obs, self.clip_obs)
+                k: self.obs_dict[k] if self.obs_dict[k].dtype == torch.uint8 else torch.clamp(self.obs_dict[k], -self.clip_obs, self.clip_obs)
                 for k in self.obs_dims
                 # TODO: add clone in case clamping messes up with other portion of the code e.g. reward from obs.
                 #  For now, not using clone to save memory.

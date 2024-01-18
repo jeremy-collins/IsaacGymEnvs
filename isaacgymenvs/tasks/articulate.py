@@ -284,7 +284,7 @@ class ArticulateTask(VecTask, IsaacGymCameraBase):
             assert self.device == "cpu", "saveRigidBodyState only works with CPU tensors!"
             initial_state = np.copy(self.gym.get_sim_rigid_body_states(self.sim, gymapi.STATE_ALL))
             np.save("initial_state.npy", initial_state)
-        
+
         if self.cfg["env"].get("loadRigidBodyState", False):
             assert self.device == "cpu", "saveRigidBodyState only works with CPU tensors!"
             initial_state = np.load("initial_state.npy")
@@ -881,9 +881,6 @@ class ArticulateTask(VecTask, IsaacGymCameraBase):
 
     def reset_idx(self, env_ids, goal_env_ids=None):
         # generate random values
-        from isaacgymenvs.utils.utils import set_seed
-
-        set_seed(42)
         rand_floats = torch_rand_float(
             -1.0,
             1.0,
@@ -1418,7 +1415,7 @@ class ArticulateTask(VecTask, IsaacGymCameraBase):
 
 
 class ArticulateTaskCamera(ArticulateTask):
-    dict_obs_cls: bool = True
+    dict_obs_cls: bool = False
 
     def __init__(
         self,
@@ -1440,20 +1437,59 @@ class ArticulateTaskCamera(ArticulateTask):
             force_render,
         )
         assert self.use_image_obs, "ArticulateTaskCamera requires use_image_obs to be True"
-        tmp_obs_space = self.obs_space
-        space_dict = {"obs": tmp_obs_space}
-        for camera_name, camera_spec in self.camera_spec_dict.items():
-            space_dict[camera_name] = spaces.Box(
-                low=0,
-                high=255,
-                shape=(
-                    camera_spec.width,
-                    camera_spec.height,
-                    3,
-                ),
-                dtype=np.uint8,
-            )
-
-        self.obs_space = spaces.Dict(space_dict)
+        if not isinstance(self.obs_space, spaces.Dict):
+            tmp_obs_space = self.obs_space
+            space_dict = {"obs": tmp_obs_space}
+            for camera_name, camera_spec in self.camera_spec_dict.items():
+                space_dict[camera_name] = spaces.Box(
+                    low=0,
+                    high=255,
+                    shape=(
+                        camera_spec.width,
+                        camera_spec.height,
+                        3,
+                    ),
+                    dtype=np.uint8,
+                )
+            self.obs_space = spaces.Dict(space_dict)
 
         # IsaacGymCameraBase.__init__(self, self.camera_spec_dict)
+
+    def create_camera_actors(self):
+        """Overrides IsaacGymCameraBase.create_camera_actors
+        to create multiple camera handles if needed"""
+        import copy
+        from scipy.spatial.transform import Rotation
+
+        if hasattr(self, "camera_handles_list"):
+            return
+        if not self.cfg["env"].get("vary_camera_pose", False):
+            return super().create_camera_actors()
+        self.camera_handles_list = []
+        self.camera_tensors_list = []
+        if self.camera_spec_dict:
+            camera_name = list(self.camera_spec_dict.keys())[0]
+            init_camera_spec = self.cfg["env"]["camera_spec"][camera_name]
+        else:
+            camera_name = "hand_camera"
+            init_camera_spec = self.cfg["env"]["cameraSpec"]["fixed_camera"]
+        pos, rot = init_camera_spec.get("camera_pose", [[0.0, -0.35, 0.2], [0.0, 0.0, 0.85090352, 0.52532199]])
+        R = Rotation.from_quat(rot)
+        self.camera_spec_dicts = []
+        # create a line of cameras from initial position looking in same direction
+        for i in range(self.num_envs):
+            env_ptr = self.envs[i]
+            camera_spec = copy.deepcopy(self.camera_spec_dict)
+            cameras_per_axis = self.num_envs // 3
+            axis = "xyz"[int(i / cameras_per_axis)]
+            fov = 60
+            c = fov / cameras_per_axis
+            # rotate camera by 5 degrees around pitch axis
+            new_rot = R * Rotation.from_euler(axis, -fov / 2 + (i % cameras_per_axis) * c, degrees=True)
+            camera_spec[camera_name]["camera_pose"] = [pos, [float(x) for x in new_rot.as_quat()]]
+            env_camera_handles = self.setup_env_cameras(env_ptr, camera_spec)
+            self.camera_spec_dicts.append(camera_spec)
+            self.camera_handles_list.append(env_camera_handles)
+            self.camera_tensors_list.append(
+                self.create_tensors_for_env_cameras(env_ptr, env_camera_handles, camera_spec)
+            )

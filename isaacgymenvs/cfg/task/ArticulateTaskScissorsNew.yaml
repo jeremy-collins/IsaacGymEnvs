@@ -15,6 +15,7 @@ env:
     action_penalty: ${task.rewards.action_penalty}
     reach_bonus: ${task.rewards.reach_bonus}
     fall_penalty: ${task.rewards.drop_penalty}
+    hand_rot_reward: ${task.rewards.hand_rot_reward}
    
   fallPenalty: 0.0
 

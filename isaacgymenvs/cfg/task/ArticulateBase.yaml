@@ -87,7 +87,7 @@ env:
       is_body_camera: true
       actor_name: hand
       attach_link_name: palm_link
-      camera_pose: [[0,0,0], [0.7071,0,0,0.7071]]
+      camera_pose: [[0.05,0,0.05], [0.71,0.05,0.05,0.71]]
     fixed_camera:
       width: 64
       heigth: 64
