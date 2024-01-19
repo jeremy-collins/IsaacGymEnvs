@@ -36,6 +36,8 @@ num_subscenes: 4 # Splits the simulation into N physics scenes and runs each one
 test: False
 # used to set checkpoint path
 checkpoint: ''
+# used to load config if in encluded checkpoint path
+load_config: false
 # set sigma when restoring network
 sigma: ''
 # set to True to use multi-gpu training

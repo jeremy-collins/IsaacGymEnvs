@@ -11,6 +11,7 @@ env:
   enableCameraSensors: True
   camera_spec: 
     hand_camera: ${task.env.cameraSpec.wrist_camera}
+    fixed_camera: ${task.env.cameraSpec.fixed_camera}
   useDictObs: True
   obsKeys:  # need to include this if use_dict_obs = True 
     - hand_joint_pos

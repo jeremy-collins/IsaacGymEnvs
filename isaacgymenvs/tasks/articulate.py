@@ -455,6 +455,7 @@ class ArticulateTask(VecTask, IsaacGymCameraBase):
 
         # set shadow_hand dof properties
         shadow_hand_dof_props = self.gym.get_asset_dof_properties(allegro_hand_asset)
+        allegro_hand_default_pos = np.zeros(self.num_shadow_hand_dofs)
 
         self.shadow_hand_dof_lower_limits = []
         self.shadow_hand_dof_upper_limits = []
@@ -463,24 +464,34 @@ class ArticulateTask(VecTask, IsaacGymCameraBase):
         load_default_pos = os.path.exists("allegro_hand_dof_default_pos.npy") and self.load_default_pos
         if load_default_pos:
             allegro_hand_default_pos = np.load("allegro_hand_dof_default_pos.npy")
+            if "scissors" in self.object_type:
+                allegro_hand_default_pos = np.load("allegro_hand_dof_default_pos_scissors.npy")
             assert len(allegro_hand_default_pos) == self.num_shadow_hand_dofs
         self.shadow_hand_dof_default_vel = []
         # self.sensors = []
         # sensor_pose = gymapi.Transform()
 
+        start_pose_init = []
         for i in range(self.num_shadow_hand_dofs):
             self.shadow_hand_dof_lower_limits.append(shadow_hand_dof_props["lower"][i])
             self.shadow_hand_dof_upper_limits.append(shadow_hand_dof_props["upper"][i])
-            if load_default_pos:
-                self.shadow_hand_dof_default_pos.append(allegro_hand_default_pos[i])
-            else:
-                self.shadow_hand_dof_default_pos.append(0.0)
+            # if i < 6:
+            #     self.shadow_hand_dof_default_pos.append(0.0)
+            #     start_pose_init.append(allegro_hand_default_pos[i])
+            # else:
+            self.shadow_hand_dof_default_pos.append(allegro_hand_default_pos[i])
             self.shadow_hand_dof_default_vel.append(0.0)
 
             # print("Max effort: ", shadow_hand_dof_props["effort"][i])
             shadow_hand_dof_props["effort"][i] = 0.5
-            shadow_hand_dof_props["stiffness"][i] = 3
-            shadow_hand_dof_props["damping"][i] = 0.1
+            if i < 6 and self.num_actions == 22:
+                shadow_hand_dof_props["stiffness"][i] = 30
+                shadow_hand_dof_props["damping"][i] = 10
+                shadow_hand_dof_props["friction"][i] = 0.0
+                shadow_hand_dof_props["armature"][i] = 0.0
+            else:
+                shadow_hand_dof_props["stiffness"][i] = 3
+                shadow_hand_dof_props["damping"][i] = 0.1
             shadow_hand_dof_props["friction"][i] = 0.01
             shadow_hand_dof_props["armature"][i] = 0.001
 
@@ -493,8 +504,10 @@ class ArticulateTask(VecTask, IsaacGymCameraBase):
         self.shadow_hand_dof_default_vel = to_torch(self.shadow_hand_dof_default_vel, device=self.device)
 
         # load articulated object and goal assets
+        self.allegro_hand_dof_default_pos = []
         self.object_assets = []
         self.goal_assets = []
+        self.start_poses = []
 
         def load_object_goal_asset(object_asset_file):
             object_asset_options = gymapi.AssetOptions()
@@ -502,6 +515,10 @@ class ArticulateTask(VecTask, IsaacGymCameraBase):
             object_asset = self.gym.load_asset(self.sim, asset_root, object_asset_file, object_asset_options)
             object_dof_props = self.gym.get_asset_dof_properties(object_asset)
             object_target_dof_idx = self.gym.get_asset_dof_dict(object_asset)[self.object_target_dof_name]
+
+            start_pose = None
+            if "start_pose.npz" in os.listdir(os.path.join(asset_root, os.path.dirname(object_asset_file))):
+                start_pose = np.load(os.path.join(asset_root, os.path.dirname(object_asset_file), "start_pose.npz"))
             if self.object_stiffness:
                 object_dof_props["stiffness"][object_target_dof_idx] = self.object_stiffness
             if self.object_damping:
@@ -509,16 +526,18 @@ class ArticulateTask(VecTask, IsaacGymCameraBase):
             object_asset_options.disable_gravity = True
             object_asset_options.fix_base_link = True
             goal_asset = self.gym.load_asset(self.sim, asset_root, object_asset_file, object_asset_options)
-            return object_asset, goal_asset, object_dof_props
+            return object_asset, goal_asset, object_dof_props, start_pose
 
+        # Load object assets from from files, as well as object-specific pose data
         self.object_dof_lower_limits = []
         self.object_dof_upper_limits = []
         for object_file in object_asset_files:
-            object_asset, goal_asset, object_dof_props = load_object_goal_asset(object_file)
+            object_asset, goal_asset, object_dof_props, object_start_pose = load_object_goal_asset(object_file)
             self.object_dof_lower_limits.append(object_dof_props["lower"])
             self.object_dof_upper_limits.append(object_dof_props["upper"])
             self.object_assets.append(object_asset)
             self.goal_assets.append(goal_asset)
+            self.start_poses.append(object_start_pose)
 
         if any([otype in SUPPORTED_PARTNET_OBJECTS for otype in self.object_type]):
             self.object_dof_lower_limits = to_torch(self.object_dof_lower_limits, device=self.device)
@@ -531,42 +550,24 @@ class ArticulateTask(VecTask, IsaacGymCameraBase):
         ]
 
         self.object_target_dof_idx = []
-        for object_type, object_asset in zip(self.object_type, self.object_assets):
+        for task_id, object_asset in zip(self.env_task_order, self.object_assets): 
+            object_type = SUPPORTED_PARTNET_OBJECTS[task_id]
+            # TODO: remove redundant step here
             if object_type in SUPPORTED_PARTNET_OBJECTS:
                 num_object_dofs = self.gym.get_asset_dof_count(object_asset)
                 assert num_object_dofs == 1, "Currently only support 1 DoF objects"
                 self.num_object_dofs = 1
-                object_target_dof_idx = self.gym.get_asset_dof_dict(object_asset)[self.object_target_dof_name]
-                self.object_target_dof_idx.append(object_target_dof_idx)
+                self.object_target_dof_idx = [0]
+                # object_target_dof_idx = self.gym.get_asset_dof_dict(object_asset)[self.object_target_dof_name]
+                # self.object_target_dof_idx.append(object_target_dof_idx)
             else:
                 self.num_object_dofs = 0
 
         self.num_dofs_with_object = self.num_shadow_hand_dofs + self.num_object_dofs
 
-        allegro_hand_start_pose = gymapi.Transform()
-
-        object_specific_start_poses = {}
-        for object_type, object_asset_file in zip(self.env_task_order, object_asset_files):
-            object_start_pose = gymapi.Transform()
-            object_start_pose.p = gymapi.Vec3()
-            if "start_pose.npz" in os.listdir(os.path.join(asset_root, os.path.dirname(object_asset_file))):
-                start_pose = np.load(os.path.join(asset_root, os.path.dirname(object_asset_file), "start_pose.npz"))
-            else:
-                start_pose = None
-            if object_type in object_specific_start_poses:
-                object_specific_start_poses[object_type].append(start_pose)
-            else:
-                object_specific_start_poses[object_type] = [start_pose]
-
-        allegro_hand_start_pose.p = gymapi.Vec3(*get_axis_params(0.25, self.up_axis_idx))
-        allegro_hand_start_pose.r = (
-            gymapi.Quat.from_axis_angle(gymapi.Vec3(0, 1, 0), 1.5 * np.pi)
-            * gymapi.Quat.from_axis_angle(gymapi.Vec3(1, 0, 0), 1.97 * np.pi)
-            * gymapi.Quat.from_axis_angle(gymapi.Vec3(0, 0, 1), 0.25 * np.pi)
-        )
-
         # get object and goal poses
         poses = []
+
         self.goal_displacement = gymapi.Vec3(-0.2, -0.06, 0.15)
         self.goal_displacement_tensor = to_torch(
             [
@@ -576,42 +577,63 @@ class ArticulateTask(VecTask, IsaacGymCameraBase):
             ],
             device=self.device,
         )
+        default_dof_pos = to_torch(allegro_hand_default_pos, device=self.device)
 
-        for object_type, object_asset_file in zip(self.object_type, object_asset_files):
+        allegro_hand_start_pose = None
+        for object_type, object_asset_file, start_pose in zip(
+            self.env_task_order, object_asset_files, self.start_poses
+        ):
             object_start_pose = gymapi.Transform()
-            object_start_pose.p = gymapi.Vec3()
-            if "start_pose.npz" in os.listdir(os.path.join(asset_root, os.path.dirname(object_asset_file))):
-                start_pose = np.load(os.path.join(asset_root, os.path.dirname(object_asset_file), "start_pose.npz"))
+
+            dof_pos = default_dof_pos
+            if start_pose:
                 object_start_pose.p = gymapi.Vec3(*start_pose["pos"])
                 # TODO: handle multiple hand_start_pose transforms per object
-                # if "hand_start_pos" in start_pose:
-                #     allegro_hand_start_pose.p = gymapi.Vec3(*start_pose["hand_start_pos"])
-                #     allegro_hand_start_pose.r = gymapi.Vec3(*start_pose["hand_start_rot"])
-                # if "hand_start_qpos" in start_pose:
-                #     self.shadow_hand_dof_default_pos = to_torch(start_pose["hand_start_qpos"], device=self.device)
+                if "hand_start_pos" in start_pose:
+                    # allegro_hand_start_pose = gymapi.Transform()
+                    #     allegro_hand_start_pose.p = gymapi.Vec3(*start_pose["hand_start_pos"])
+                    #     allegro_hand_start_pose.r = gymapi.Vec3(*start_pose["hand_start_rot"])
+                    # if "hand_start_qpos" in start_pose:
+                    translate = to_torch(start_pose["hand_start_pos"], device=self.device)
+                    rot = get_euler_xyz(to_torch(start_pose["hand_start_rot"], device=self.device))
+                    dof_pos = torch.cat([translate, rot, self.shadow_hand_dof_default_pos[6:]])
             else:
                 object_start_pose.p.x = -0.12
-                object_start_pose.p.y = -0.08
+                object_start_pose.p.y = -0.08  # should roughly be half height of object
                 object_start_pose.p.z = 0.124
+
+            self.allegro_hand_dof_default_pos.append(dof_pos)
             object_start_pose.r.w = 1.0
             object_start_pose.r.x = 0.0
             object_start_pose.r.y = 0.0
             object_start_pose.r.z = 0.0
 
-            if object_type not in SUPPORTED_PARTNET_OBJECTS:
-                object_start_pose.p.x = allegro_hand_start_pose.p.x  # object on top of hand
-                pose_dy, pose_dz = -0.2, 0.06
+            # if object_type not in SUPPORTED_PARTNET_OBJECTS and allegro_hand_start_pose:
+            #     object_start_pose.p.x = allegro_hand_start_pose.p.x  # object on top of hand
+            #     pose_dy, pose_dz = -0.2, 0.06
 
-                object_start_pose.p.y = allegro_hand_start_pose.p.y + pose_dy
-                object_start_pose.p.z = allegro_hand_start_pose.p.z + pose_dz
+            #     object_start_pose.p.y = allegro_hand_start_pose.p.y + pose_dy
+            #     object_start_pose.p.z = allegro_hand_start_pose.p.z + pose_dz
 
-            if self.object_type == "pen":
-                object_start_pose.p.z = allegro_hand_start_pose.p.z + 0.02
+            # if self.object_type == "pen":
+            #     object_start_pose.p.z = allegro_hand_start_pose.p.z + 0.02
             goal_start_pose = gymapi.Transform()
             goal_start_pose.p = object_start_pose.p + self.goal_displacement
 
             goal_start_pose.p.z -= 0.04
             poses.append((object_start_pose, goal_start_pose))
+
+        self.allegro_hand_dof_default_pos = torch.stack(self.allegro_hand_dof_default_pos)
+
+        allegro_hand_start_pose = gymapi.Transform()
+        allegro_hand_start_pose.p = gymapi.Vec3(*get_axis_params(0.25, self.up_axis_idx))
+        allegro_hand_start_pose.r = (
+            gymapi.Quat.from_axis_angle(gymapi.Vec3(0, 1, 0), 1.5 * np.pi)
+            * gymapi.Quat.from_axis_angle(gymapi.Vec3(1, 0, 0), 1.97 * np.pi)
+            * gymapi.Quat.from_axis_angle(gymapi.Vec3(0, 0, 1), 0.25 * np.pi)
+        )
+        # allegro_hand_start_pose.p = gymapi.Vec3(*start_pose_init[:3])
+        # allegro_hand_start_pose.r = gymapi.Quat.from_euler_zyx(*start_pose_init[3:6])
 
         # compute aggregate size
         max_agg_bodies = self.num_shadow_hand_bodies + max(self.num_object_bodies) * 2
@@ -654,6 +676,8 @@ class ArticulateTask(VecTask, IsaacGymCameraBase):
                 self.goal_assets[i % len(self.goal_assets)],
             )
             object_start_pose, goal_start_pose = poses[i % len(poses)]
+            if self.start_poses[i % len(self.start_poses)] is not None:
+                self.allegro_hand_dof_default_pos[i % len(poses)]
             # create env instance
             env_ptr = self.gym.create_env(self.sim, lower, upper, num_per_row)
 
@@ -791,10 +815,12 @@ class ArticulateTask(VecTask, IsaacGymCameraBase):
             )
             self.object_rb_handles = torch.cat(
                 [
-                    to_torch(object_rb_handle, device=self.device, dtype=torch.long) + num_bodies
+                    to_torch(object_rb_handle, device=self.device, dtype=torch.long)
                     for object_rb_handle, num_bodies in zip(self.object_rb_handles, self.env_num_bodies)
                 ]
             )
+            self.fingertip_indices = to_torch(self.fingertip_indices, device=self.device, dtype=torch.long)
+            self.fingertip_indices = (self.env_num_bodies[:, None] + self.fingertip_indices[None, :]).flatten()
             # concatenate and then turn the concatenated list of object_rb_masses into a torch tensor
             self.object_rb_masses = to_torch(np.concatenate(self.object_rb_masses), device=self.device)
         else:
@@ -1292,8 +1318,9 @@ class ArticulateTask(VecTask, IsaacGymCameraBase):
             ).view(self.num_envs, -1)
 
         if isinstance(self.object_target_dof_pos, torch.Tensor):
+            assert len(self.object_target_dof_pos) in [1, self.num_objects], "must either provide a single or K target dofs for each object"
             object_target_dof = (
-                self.object_target_dof_pos.unsqueeze(0).repeat(self.num_envs // self.num_objects, 1).unsqueeze(-1)
+                self.object_target_dof_pos.unsqueeze(0).repeat(self.num_envs // len(self.object_target_dof_pos), 1).unsqueeze(-1)
             )
         else:
             object_target_dof = self.object_target_dof_pos * torch.ones_like(obs_dict["object_dof_pos"])
@@ -1331,6 +1358,17 @@ class ArticulateTask(VecTask, IsaacGymCameraBase):
         obs_dict["fingertip_pos"] = obs_dict["fingertip_pose_vel"][:, :, 0:3]
         obs_dict["fingertip_rot"] = obs_dict["fingertip_pose_vel"][:, :, 3:7]
         obs_dict["fingertip_vel"] = obs_dict["fingertip_pose_vel"][:, :, 7:10]
+
+        # get thumb, index, middle, ring pos/rot
+        obs_dict["thumb_pos"] = obs_dict["fingertip_pos"][:, 0]
+        obs_dict["thumb_rot"] = obs_dict["fingertip_rot"][:, 0]
+        obs_dict["index_pos"] = obs_dict["fingertip_pos"][:, 1]
+        obs_dict["index_rot"] = obs_dict["fingertip_rot"][:, 1]
+        obs_dict["middle_pos"] = obs_dict["fingertip_pos"][:, 2]
+        obs_dict["middle_rot"] = obs_dict["fingertip_rot"][:, 2]
+        obs_dict["ring_pos"] = obs_dict["fingertip_pos"][:, 3]
+        obs_dict["ring_rot"] = obs_dict["fingertip_rot"][:, 3]
+
         obs_dict["actions"] = self.actions
         obs_dict["hand_joint_pos_err"] = self.prev_targets[:, self.actuated_dof_indices] - obs_dict["hand_joint_pos"]
 

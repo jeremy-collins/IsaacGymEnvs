@@ -19,6 +19,16 @@ def l2_dist_exp_normalized(x, target):
 
 
 @torch.jit.script
+def l1_dist_exp(x, y, eps: float = 1e-1):
+    return torch.exp(-torch.abs(x - y).sum(dim=-1) / eps)
+
+
+@torch.jit.script
+def l1_dist_exp_normalized(x, target):
+    return torch.exp(-torch.abs(x - target).sum(dim=-1, keepdim=True) / target).sum(dim=-1)
+
+
+@torch.jit.script
 def rot_dist(object_rot, target_rot):
     quat_diff = quat_mul(object_rot, quat_conjugate(target_rot))
     rot_dist = torch.asin(torch.clamp(torch.norm(quat_diff[:, :3], p=2, dim=-1), max=1.0))

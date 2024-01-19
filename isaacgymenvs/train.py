@@ -114,6 +114,14 @@ def launch_rlg_hydra(cfg: DictConfig):
     # ensure checkpoints can be specified as relative paths
     if cfg.checkpoint:
         cfg.checkpoint = to_absolute_path(cfg.checkpoint)
+        if (
+            cfg.checkpoint
+            and os.path.exists(os.path.join(os.path.dirname(os.path.dirname(cfg.checkpoint)), "config.yaml"))
+            and cfg.load_config
+        ):
+            load_config = OmegaConf.load(os.path.join(os.path.dirname(os.path.dirname(cfg.checkpoint)), "config.yaml"))
+            cfg.task = OmegaConf.merge(cfg.task, load_config.task)
+            cfg.train = OmegaConf.merge(cfg.train, load_config.train)
 
     cfg_dict = omegaconf_to_dict(cfg)
     print_dict(cfg_dict)
@@ -164,7 +172,7 @@ def launch_rlg_hydra(cfg: DictConfig):
     ige_env_cls = isaacgym_task_map[cfg.task_name]
     dict_cls = False
     if hasattr(ige_env_cls, "dict_obs_cls"):
-        dict_cls = ige_env_cls.dict_obs_cls # or cfg.task.env.get("useDictObs", False)
+        dict_cls = ige_env_cls.dict_obs_cls  # or cfg.task.env.get("useDictObs", False)
 
     if dict_cls:
         obs_spec = {}

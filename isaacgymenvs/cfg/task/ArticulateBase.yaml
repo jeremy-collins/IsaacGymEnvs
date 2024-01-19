@@ -14,6 +14,10 @@ defaults:
     - rot_reward_delta
     - rot_reward
     - task_reward
+    - thumb_dist
+    - index_dist
+    - middle_dist
+    - ring_dist
 
 # used to create the object
 name: ${if:${task.env.enableCameraSensors},ArticulateTaskCamera,ArticulateTask}
