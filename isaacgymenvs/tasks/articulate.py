@@ -101,8 +101,12 @@ class ArticulateTask(VecTask, IsaacGymCameraBase):
         self.object_target_dof_pos = to_torch(self.object_target_dof_pos, device=sim_device, dtype=torch.float)
         # else:
         #     raise AssertionError("objectDofTargetPos must be a list")
+
+        # object joint settings
         self.object_stiffness = self.cfg["env"].get("objectStiffness")
         self.object_damping = self.cfg["env"].get("objectDamping")
+        self.object_friction = self.cfg["env"].get("objectFriction")
+        self.object_armature = self.cfg["env"].get("objectArmature")
         self.vel_obs_scale = 0.2  # scale factor of velocity based observations
 
         self.force_torque_obs_scale = 10.0  # scale factor of velocity based observations
@@ -523,6 +527,10 @@ class ArticulateTask(VecTask, IsaacGymCameraBase):
                 object_dof_props["stiffness"][object_target_dof_idx] = self.object_stiffness
             if self.object_damping:
                 object_dof_props["damping"][object_target_dof_idx] = self.object_damping
+            if self.object_armature:
+                object_dof_props["armature"][object_target_dof_idx] = self.object_armature
+            if self.object_friction:
+                object_dof_props["friction"][object_target_dof_idx] = self.object_friction
             object_asset_options.disable_gravity = True
             object_asset_options.fix_base_link = True
             goal_asset = self.gym.load_asset(self.sim, asset_root, object_asset_file, object_asset_options)
@@ -550,7 +558,7 @@ class ArticulateTask(VecTask, IsaacGymCameraBase):
         ]
 
         self.object_target_dof_idx = []
-        for task_id, object_asset in zip(self.env_task_order, self.object_assets): 
+        for task_id, object_asset in zip(self.env_task_order, self.object_assets):
             object_type = SUPPORTED_PARTNET_OBJECTS[task_id]
             # TODO: remove redundant step here
             if object_type in SUPPORTED_PARTNET_OBJECTS:
@@ -1318,9 +1326,14 @@ class ArticulateTask(VecTask, IsaacGymCameraBase):
             ).view(self.num_envs, -1)
 
         if isinstance(self.object_target_dof_pos, torch.Tensor):
-            assert len(self.object_target_dof_pos) in [1, self.num_objects], "must either provide a single or K target dofs for each object"
+            assert len(self.object_target_dof_pos) in [
+                1,
+                self.num_objects,
+            ], "must either provide a single or K target dofs for each object"
             object_target_dof = (
-                self.object_target_dof_pos.unsqueeze(0).repeat(self.num_envs // len(self.object_target_dof_pos), 1).unsqueeze(-1)
+                self.object_target_dof_pos.unsqueeze(0)
+                .repeat(self.num_envs // len(self.object_target_dof_pos), 1)
+                .unsqueeze(-1)
             )
         else:
             object_target_dof = self.object_target_dof_pos * torch.ones_like(obs_dict["object_dof_pos"])

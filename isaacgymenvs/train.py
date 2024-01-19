@@ -120,8 +120,8 @@ def launch_rlg_hydra(cfg: DictConfig):
             and cfg.load_config
         ):
             load_config = OmegaConf.load(os.path.join(os.path.dirname(os.path.dirname(cfg.checkpoint)), "config.yaml"))
-            cfg.task = OmegaConf.merge(cfg.task, load_config.task)
-            cfg.train = OmegaConf.merge(cfg.train, load_config.train)
+            cfg.task = load_config.task
+            cfg.train = load_config.train
 
     cfg_dict = omegaconf_to_dict(cfg)
     print_dict(cfg_dict)
