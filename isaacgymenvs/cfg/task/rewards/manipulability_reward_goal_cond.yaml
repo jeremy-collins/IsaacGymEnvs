@@ -1,0 +1,9 @@
+manipulability_reward_goal_cond:
+  reward_fn_partial: 
+    _partial_: true
+    _target_: isaacgymenvs.utils.rewards.manipulability_goal_cond
+  args:
+    - manipulability
+    - object_pose
+    - goal_pose
+  scale: 1

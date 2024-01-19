@@ -67,6 +67,15 @@ def manipulability_spectral_norm(manipulability):
     # returns the spectral norm of the manipulability matrix. The first dimension is the batch dimension
     return torch.linalg.norm(manipulability, dim=(-2, -1), ord=2)
 
+@torch.jit.script
+def manipulability_goal_cond(manipulability, object_pose, goal_pose):
+    # returns frobenius norm of manipulability matrix weighted by distance to goal
+    err = object_pose - goal_pose # (batch, 7)
+
+    # (batch, 7), (batch, 7, 22) -> (batch, 22)
+    weighted_manip = torch.einsum('ij,ijk->ik', err.float(), manipulability.float())
+    return torch.linalg.vector_norm(weighted_manip, ord=2, dim=-1)
+
 def parse_reward_params(reward_params_dict):
     rew_params = {}
     for key, value in reward_params_dict.items():

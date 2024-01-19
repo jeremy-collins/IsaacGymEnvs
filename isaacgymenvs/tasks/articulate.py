@@ -15,6 +15,7 @@ from omegaconf import OmegaConf
 from .base.vec_task import VecTask
 
 import time
+import wandb
 
 SUPPORTED_PARTNET_OBJECTS = [
     "dispenser",
@@ -1150,7 +1151,7 @@ class ArticulateTask(VecTask, IsaacGymCameraBase):
             IsaacGymCameraBase.compute_observations(self)
         return ret
 
-    def pre_physics_step(self, actions, get_manipulability=False):
+    def pre_physics_step(self, actions):
         self.extras = {}
         env_ids = self.reset_buf.nonzero(as_tuple=False).squeeze(-1)
         goal_env_ids = self.reset_goal_buf.nonzero(as_tuple=False).squeeze(-1)
@@ -1232,12 +1233,12 @@ class ArticulateTask(VecTask, IsaacGymCameraBase):
             self.sim, gymtorch.unwrap_tensor(self.cur_targets)
         )
 
-    def post_physics_step(self, get_manipulability=False):
+    def post_physics_step(self):
         self.progress_buf += 1
 
-        self.compute_observations(get_manipulability=get_manipulability)
+        self.compute_observations()
         self.compute_reward()
-        print('reward', self.current_rew_dict)
+        # print('reward', self.current_rew_dict)
         self.extras["consecutive_successes"] = self.reward_extras[
             "consecutive_successes"
         ].mean()
@@ -1448,7 +1449,7 @@ class ArticulateTask(VecTask, IsaacGymCameraBase):
                 [0.1, 0.1, 0.85],
             )
 
-    def compute_observations(self, get_manipulability=False):
+    def compute_observations(self, skip_manipulability=False):
         self.gym.refresh_dof_state_tensor(self.sim)
         self.gym.refresh_actor_root_state_tensor(self.sim)
         self.gym.refresh_rigid_body_state_tensor(self.sim)
@@ -1471,6 +1472,7 @@ class ArticulateTask(VecTask, IsaacGymCameraBase):
         obs_dict["object_pose"] = self.root_state_tensor[self.object_indices, 0:7]
         obs_dict["object_pos"] = self.root_state_tensor[self.object_indices, 0:3]
         obs_dict["object_quat"] = self.root_state_tensor[self.object_indices, 3:7]
+        obs_dict["goal_pose"] = self.goal_states[:, 0:7]
         obs_dict["goal_pos"] = self.goal_states[:, 0:3]
         obs_dict["goal_quat"] = self.goal_states[:, 3:7]
         obs_dict["object_lin_vel"] = self.root_state_tensor[self.object_indices, 7:10]
@@ -1581,8 +1583,14 @@ class ArticulateTask(VecTask, IsaacGymCameraBase):
         obs_dict["object_instance_one_hot"] = object_instance_one_hot.to(self.device)
         obs_dict["object_type_one_hot"] = object_type_one_hot.to(self.device)
 
-        if get_manipulability:
-            obs_dict["manipulability"] = self.get_manipulability_fd(f=self.manip_step, obs_dict=obs_dict, obs_keys=["object_pose"], action=torch.zeros_like(self.actions))
+        # print("self.reward_params", self.reward_params)
+        if not skip_manipulability and (
+            "manipulability_reward" in self.reward_params.keys()
+            or "manipulability_reward_goal_cond" in self.reward_params.keys()
+        ):
+            actions_copy = self.actions.clone()
+            obs_dict["manipulability"] = self.get_manipulability_fd(f=self.manip_step, obs_dict=obs_dict, obs_keys=["object_pose"], action=self.actions) # action=torch.zeros_like(self.actions))
+            self.assign_act(actions_copy)
             # obs_dict["manipulability"] = torch.zeros((self.num_envs, 1, 1), device=self.device) # placeholder
             # print("manipulability", obs_dict["manipulability"])
 
@@ -1630,7 +1638,7 @@ class ArticulateTask(VecTask, IsaacGymCameraBase):
         self.camera_spec_dict = {camera_config["name"]: OmegaConf.create(camera_config)}
 
     def step(
-        self, actions: torch.Tensor, get_manipulability: bool = True
+        self, actions: torch.Tensor
     ) -> Tuple[Dict[str, torch.Tensor], torch.Tensor, torch.Tensor, Dict[str, Any]]:
         """Step the physics of the environment.
 
@@ -1642,11 +1650,10 @@ class ArticulateTask(VecTask, IsaacGymCameraBase):
         """
 
         # timing stuff
-        curr_time = time.time()
-        self.dt = curr_time - self.prev_time
-        print("dt", self.dt)
-        self.prev_time = curr_time
-
+        # curr_time = time.time()
+        # self.dt = curr_time - self.prev_time
+        # print("dt", self.dt)
+        # self.prev_time = curr_time
 
         # randomize actions
         if self.dr_randomizations.get("actions", None):
@@ -1654,7 +1661,7 @@ class ArticulateTask(VecTask, IsaacGymCameraBase):
 
         action_tensor = torch.clamp(actions, -self.clip_actions, self.clip_actions)
         # apply actions
-        self.pre_physics_step(action_tensor, get_manipulability=get_manipulability)
+        self.pre_physics_step(action_tensor)
 
         # step physics and render each frame
         for i in range(self.control_freq_inv):
@@ -1667,7 +1674,7 @@ class ArticulateTask(VecTask, IsaacGymCameraBase):
             self.gym.fetch_results(self.sim, True)
 
         # compute observations, rewards, resets, ...
-        self.post_physics_step(get_manipulability=get_manipulability)
+        self.post_physics_step()
 
         # fill time out buffer: set to 1 if we reached the max episode length AND the reset buffer is 1. Timeout == 1 makes sense only if the reset buffer is 1.
         self.timeout_buf = (self.progress_buf >= self.max_episode_length - 1) & (
@@ -1690,7 +1697,8 @@ class ArticulateTask(VecTask, IsaacGymCameraBase):
         if self.num_states > 0:
             self.obs_dict["states"] = self.get_state()
 
-        print('rew_buf', self.rew_buf.shape)
+        # print('rew_buf', self.rew_buf.shape)
+        # wandb.log({"reward": self.rew_buf.mean().item()})
 
         return (
             self.obs_dict,
@@ -1700,7 +1708,7 @@ class ArticulateTask(VecTask, IsaacGymCameraBase):
         )
 
     def manip_step(
-        self, actions: torch.Tensor, get_manipulability: bool = True
+        self, actions: torch.Tensor
     ) -> Tuple[Dict[str, torch.Tensor], torch.Tensor, torch.Tensor, Dict[str, Any]]:
         """Unrolled step function for debugging manipulability function.
 
@@ -1708,7 +1716,7 @@ class ArticulateTask(VecTask, IsaacGymCameraBase):
             actions: actions to apply
         Returns:
             Observations, rewards, resets, info
-            Observations are dict of observations (currently only one member called 'obs')
+            Observations are dict of observations
         """
 
         # # randomize actions
@@ -1717,7 +1725,7 @@ class ArticulateTask(VecTask, IsaacGymCameraBase):
 
         action_tensor = torch.clamp(actions, -self.clip_actions, self.clip_actions)
         # apply actions
-        # self.pre_physics_step(action_tensor, simulate=simulate)
+        # self.pre_physics_step(action_tensor)
         ######### UNROLLING PRE-PHYSICS STEP
 
         self.extras = {}
@@ -1772,8 +1780,8 @@ class ArticulateTask(VecTask, IsaacGymCameraBase):
         #########
 
         # step physics and render each frame
-        for i in range(self.control_freq_inv): # 2 for 60 Hz
-        # for i in range(1):
+        # for i in range(self.control_freq_inv): # 2 for 60 Hz
+        for i in range(1):
             # if self.force_render:
             #     self.render()
             self.gym.simulate(self.sim)
@@ -1789,7 +1797,8 @@ class ArticulateTask(VecTask, IsaacGymCameraBase):
             
         # self.progress_buf += 1
 
-        self.compute_observations()
+        self.compute_observations(skip_manipulability=True)
+
         # self.compute_reward()
         # print('reward', self.current_rew_dict)
         # self.extras["consecutive_successes"] = self.reward_extras[
@@ -1872,36 +1881,32 @@ class ArticulateTask(VecTask, IsaacGymCameraBase):
             None # self.extras,
         )
 
-    def get_manipulability_fd(self, f, obs_dict, obs_keys, action, eps=1e-4):
+
+    def get_manipulability_fd(self, f, obs_dict, obs_keys, action, eps=1e-2):
         ''' Compute the finite difference jacobian to compute manipulability
 
         Args:
             f (function): dynamics function
             obs_keys: list of keys to obs_dict
             action: action
-            eps: finite difference step. Defaults to 1e-4.
+            eps: finite difference step
         
         '''
         obs = self.obs_dict_to_tensor(obs_dict, obs_keys)
         bs = action.shape[0]
         input_dim = action.shape[1]
         output_dim = obs.shape[1]
-        manipulability_fd = torch.empty((bs, output_dim, input_dim), dtype=torch.float64, device=self.device)
-
-        print('obs', obs.shape)
-        print('action', action.shape)
-        print('manipulability_fd', manipulability_fd.shape)
+        manipulability_fd = torch.empty((bs, output_dim, input_dim), dtype=torch.float64, device=self.device) # TODO: allocate outside of this function
 
         for i in range(input_dim):
             action[:, i] += eps # perturbing the input (x + eps)
 
-            obs_dict_1, _, _, _ = f(action, get_manipulability=True)
+            obs_dict_1, _, _, _ = f(action)
             action[:, i] -= 2 * eps # perturbing the input the other way (x - eps)
 
-            obs_dict_2, _, _, _ = f(action, get_manipulability=True)
+            obs_dict_2, _, _, _ = f(action)
             action[:, i] += eps # set the input back to initial value
 
-            # TODO: get the observations from both next_state_1 and next_state_2
             next_state_1 = self.obs_dict_to_tensor(obs_dict_1, obs_keys)
             next_state_2 = self.obs_dict_to_tensor(obs_dict_2, obs_keys)
 
