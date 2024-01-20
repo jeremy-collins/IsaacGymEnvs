@@ -301,9 +301,9 @@ class ArticulateTask(VecTask, IsaacGymCameraBase):
             )
 
         # get gym GPU state tensors
-        actor_root_state_tensor = self.gym.acquire_actor_root_state_tensor(self.sim)
-        dof_state_tensor = self.gym.acquire_dof_state_tensor(self.sim)
-        rigid_body_tensor = self.gym.acquire_rigid_body_state_tensor(self.sim)
+        self.actor_root_state_tensor = self.gym.acquire_actor_root_state_tensor(self.sim)
+        self.dof_state_tensor = self.gym.acquire_dof_state_tensor(self.sim)
+        self.rigid_body_tensor = self.gym.acquire_rigid_body_state_tensor(self.sim)
 
         if self.obs_type == "full_state" or self.asymmetric_obs:
             #     sensor_tensor = self.gym.acquire_force_sensor_tensor(self.sim)
@@ -318,7 +318,7 @@ class ArticulateTask(VecTask, IsaacGymCameraBase):
         self.gym.refresh_dof_state_tensor(self.sim)
         self.gym.refresh_rigid_body_state_tensor(self.sim)
 
-        self.dof_state = gymtorch.wrap_tensor(dof_state_tensor)
+        self.dof_state = gymtorch.wrap_tensor(self.dof_state_tensor)
         self.shadow_hand_dof_state = self.dof_state.view(self.num_envs, -1, 2)[
             :, : self.num_shadow_hand_dofs
         ]
@@ -341,17 +341,17 @@ class ArticulateTask(VecTask, IsaacGymCameraBase):
                 self.num_envs % self.num_objects == 0
             ), "Number of objects should ebvenly divide number of envs!"
             # need to do this since number of object bodies varies per object instance
-            self.rigid_body_states = gymtorch.wrap_tensor(rigid_body_tensor).view(
+            self.rigid_body_states = gymtorch.wrap_tensor(self.rigid_body_tensor).view(
                 self.num_envs // self.num_objects, -1, 13
             )
             self.num_bodies = self.rigid_body_states.shape[1]
         else:
-            self.rigid_body_states = gymtorch.wrap_tensor(rigid_body_tensor).view(
+            self.rigid_body_states = gymtorch.wrap_tensor(self.rigid_body_tensor).view(
                 self.num_envs, -1, 13
             )
             self.num_bodies = self.rigid_body_states.shape[1]
 
-        self.root_state_tensor = gymtorch.wrap_tensor(actor_root_state_tensor).view(
+        self.root_state_tensor = gymtorch.wrap_tensor(self.actor_root_state_tensor).view(
             -1, 13
         )
 
@@ -1588,7 +1588,7 @@ class ArticulateTask(VecTask, IsaacGymCameraBase):
             "manipulability_reward" in self.reward_params.keys()
             or "manipulability_reward_goal_cond" in self.reward_params.keys()
         ):
-            actions_copy = self.actions.clone()
+            actions_copy = self.actions.clone()  
             obs_dict["manipulability"] = self.get_manipulability_fd(f=self.manip_step, obs_dict=obs_dict, obs_keys=["object_pose"], action=self.actions) # action=torch.zeros_like(self.actions))
             self.assign_act(actions_copy)
             # obs_dict["manipulability"] = torch.zeros((self.num_envs, 1, 1), device=self.device) # placeholder
@@ -1706,6 +1706,20 @@ class ArticulateTask(VecTask, IsaacGymCameraBase):
             self.reset_buf.to(self.rl_device),
             self.extras,
         )
+
+    def manip_reset(self, actor_root_state_tensor, dof_state_tensor, rigid_body_tensor):
+        self.gym.set_actor_root_state_tensor(
+            self.sim,
+            gymtorch.unwrap_tensor(actor_root_state_tensor)
+        )
+        self.gym.set_dof_state_tensor(
+            self.sim,
+            gymtorch.unwrap_tensor(dof_state_tensor)
+        )
+        # self.gym.set_rigid_body_state_tensor(
+        #     self.sim,
+        #     gymtorch.unwrap_tensor(rigid_body_tensor)
+        # )
 
     def manip_step(
         self, actions: torch.Tensor
@@ -1892,6 +1906,10 @@ class ArticulateTask(VecTask, IsaacGymCameraBase):
             eps: finite difference step
         
         '''
+        initial_actor_root_state_tensor = gymtorch.wrap_tensor(self.gym.acquire_actor_root_state_tensor(self.sim)).clone()
+        initial_dof_state_tensor = gymtorch.wrap_tensor(self.gym.acquire_dof_state_tensor(self.sim)).clone()
+        initial_rigid_body_state_tensor = gymtorch.wrap_tensor(self.gym.acquire_rigid_body_state_tensor(self.sim)).clone()
+
         obs = self.obs_dict_to_tensor(obs_dict, obs_keys)
         bs = action.shape[0]
         input_dim = action.shape[1]
@@ -1912,6 +1930,8 @@ class ArticulateTask(VecTask, IsaacGymCameraBase):
 
             # doutput/dinput
             manipulability_fd[:, :, i] = (next_state_1 - next_state_2) / (2 * eps) # each col = doutput[:]/dinput[i]
+
+            self.manip_reset(initial_actor_root_state_tensor, initial_dof_state_tensor, initial_rigid_body_state_tensor)
 
         return manipulability_fd
 

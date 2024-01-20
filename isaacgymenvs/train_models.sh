@@ -1,3 +1,6 @@
-
-python train.py task=ArticulateTaskShaped train=AllegroHandGraspPPO experiment=NoManip task.rewards.hand_dist.scale=-50. wandb_activate=true headless=True num_envs=2048 -m
-python train.py task=ManipulabilityArticulateTaskShaped train=AllegroHandGraspPPO experiment=WithManip task.rewards.hand_dist.scale=-50. wandb_activate=true headless=True num_envs=2048 -m
+python train.py task=ArticulateTaskShaped train=AllegroHandGraspPPO experiment=ArticulateTaskShaped task.rewards.hand_dist.scale=-50. wandb_activate=true headless=True num_envs=16384 train.params.config.max_epochs=750 -m
+python train.py task=ArticulateTaskSpray1 train=AllegroHandGraspPPO experiment=ArticulateTaskSpray1 task.rewards.hand_dist.scale=-50. wandb_activate=true headless=True num_envs=16384 train.params.config.max_epochs=750 -m
+python train.py task=ManipulabilityArticulateTaskShaped train=AllegroHandGraspPPO experiment=ManipulabilityArticulateTaskShaped task.rewards.hand_dist.scale=-50. wandb_activate=true headless=True num_envs=16384 train.params.config.max_epochs=750 -m
+python train.py task=ManipulabilityArticulateTaskSpray1 train=AllegroHandGraspPPO experiment=ManipulabilityArticulateTaskSpray1 task.rewards.hand_dist.scale=-50. wandb_activate=true headless=True num_envs=16384 train.params.config.max_epochs=750 -m
+python train.py task=ManipulabilityGoalCondArticulateTaskShaped train=AllegroHandGraspPPO experiment=ManipulabilityGoalCondArticulateTaskShaped task.rewards.hand_dist.scale=-50. wandb_activate=true headless=True num_envs=16384 train.params.config.max_epochs=750 -m
+python train.py task=ManipulabilityGoalCondArticulateTaskSpray1 train=AllegroHandGraspPPO experiment=ManipulabilityGoalCondArticulateTaskSpray1 task.rewards.hand_dist.scale=-50. wandb_activate=true headless=True num_envs=16384 train.params.config.max_epochs=750 -m
