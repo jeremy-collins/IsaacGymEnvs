@@ -19,9 +19,9 @@ SUPPORTED_PARTNET_OBJECTS = [
     "spray_bottle",
     "pill_bottle",
     "bottle",
+    "stapler",
     "scissors",
     "pliers",
-    "stapler",
 ]
 
 NUM_OBJECT_TYPES = 7
@@ -126,6 +126,7 @@ class ArticulateTask(VecTask, IsaacGymCameraBase):
         self.act_moving_average = self.cfg["env"]["actionsMovingAverage"]
 
         self.debug_viz = self.cfg["env"]["enableDebugVis"]
+        self.debug_rewards = self.cfg["env"].get("debugRewards")
 
         self.max_episode_length = self.cfg["env"]["episodeLength"]
         self.reset_time = self.cfg["env"].get("resetTime", -1.0)
@@ -139,6 +140,7 @@ class ArticulateTask(VecTask, IsaacGymCameraBase):
         self.translation_scale = self.cfg["env"].get("translation_scale", 0.1)
         self.orientation_scale = self.cfg["env"].get("orientation_scale", 0.1)
         self.load_default_pos = self.cfg["env"].get("load_default_pos", True)
+        self.log_reward_info = self.cfg["env"].get("log_reward_info", True)
 
         self.object_type = self.cfg["env"]["objectType"]
         self.object_instance = self.cfg["env"].get("objectInstance", {})
@@ -505,6 +507,9 @@ class ArticulateTask(VecTask, IsaacGymCameraBase):
         self.shadow_hand_dof_lower_limits = to_torch(self.shadow_hand_dof_lower_limits, device=self.device)
         self.shadow_hand_dof_upper_limits = to_torch(self.shadow_hand_dof_upper_limits, device=self.device)
         self.shadow_hand_dof_default_pos = to_torch(self.shadow_hand_dof_default_pos, device=self.device)
+        # add dof limits to rewards to compute joint penalty
+        self.reward_extras["dof_limit_low"] = self.shadow_hand_dof_lower_limits.view(1, -1)
+        self.reward_extras["dof_limit_high"] = self.shadow_hand_dof_upper_limits.view(1, -1)
         self.shadow_hand_dof_default_vel = to_torch(self.shadow_hand_dof_default_vel, device=self.device)
 
         # load articulated object and goal assets
@@ -513,7 +518,7 @@ class ArticulateTask(VecTask, IsaacGymCameraBase):
         self.goal_assets = []
         self.start_poses = []
 
-        def load_object_goal_asset(object_asset_file):
+        def load_object_goal_asset(object_asset_file, object_id):
             object_asset_options = gymapi.AssetOptions()
             object_asset_options.fix_base_link = self.fix_object_base
             object_asset = self.gym.load_asset(self.sim, asset_root, object_asset_file, object_asset_options)
@@ -523,6 +528,12 @@ class ArticulateTask(VecTask, IsaacGymCameraBase):
             start_pose = None
             if "start_pose.npz" in os.listdir(os.path.join(asset_root, os.path.dirname(object_asset_file))):
                 start_pose = np.load(os.path.join(asset_root, os.path.dirname(object_asset_file), "start_pose.npz"))
+
+            if object_id < SUPPORTED_PARTNET_OBJECTS.index(
+                "scissors"
+            ):  # spring-loaded objects, use PD controller to restore
+                object_dof_props["driveMode"].fill(gymapi.DOF_MODE_POS)
+
             if self.object_stiffness:
                 object_dof_props["stiffness"][object_target_dof_idx] = self.object_stiffness
             if self.object_damping:
@@ -531,6 +542,7 @@ class ArticulateTask(VecTask, IsaacGymCameraBase):
                 object_dof_props["armature"][object_target_dof_idx] = self.object_armature
             if self.object_friction:
                 object_dof_props["friction"][object_target_dof_idx] = self.object_friction
+
             object_asset_options.disable_gravity = True
             object_asset_options.fix_base_link = True
             goal_asset = self.gym.load_asset(self.sim, asset_root, object_asset_file, object_asset_options)
@@ -539,8 +551,10 @@ class ArticulateTask(VecTask, IsaacGymCameraBase):
         # Load object assets from from files, as well as object-specific pose data
         self.object_dof_lower_limits = []
         self.object_dof_upper_limits = []
-        for object_file in object_asset_files:
-            object_asset, goal_asset, object_dof_props, object_start_pose = load_object_goal_asset(object_file)
+        for object_file, object_id in zip(object_asset_files, self.env_task_order):
+            object_asset, goal_asset, object_dof_props, object_start_pose = load_object_goal_asset(
+                object_file, object_id
+            )
             self.object_dof_lower_limits.append(object_dof_props["lower"])
             self.object_dof_upper_limits.append(object_dof_props["upper"])
             self.object_assets.append(object_asset)
@@ -1116,6 +1130,14 @@ class ArticulateTask(VecTask, IsaacGymCameraBase):
 
         self.extras["success"] = self._check_success().flatten()
 
+        if self.debug_rewards and (self.gym.get_frame_count(self.sim) % ((self.max_episode_length) // 10) == 0):
+            total_rew = self.rew_buf.clone()
+            for key, rew in self.current_rew_dict.items():
+                norm_rew = rew / total_rew
+                print(
+                    f"{key} reward (min/max), [mean+/-std]: ({norm_rew.min()}, {norm_rew.max()}), [{norm_rew.mean()} +/- {norm_rew.std()}]"
+                )
+
         if self.print_success_stat and self.reset_buf.sum() > 0:
             self.total_resets = self.total_resets + self.reset_buf.sum()
             direct_average_successes = self.total_successes + self.successes.sum()
@@ -1140,6 +1162,10 @@ class ArticulateTask(VecTask, IsaacGymCameraBase):
         self.current_rew_dict = self.get_reward_dict(
             self.reward_params, self.current_obs_dict, self.actions, self.reward_extras
         )
+        if self.log_reward_info:
+            for k in self.current_rew_dict:
+                self.extras[f"r_{k}"] = self.current_rew_dict[k]
+
         for key, value in self.current_rew_dict.items():
             if value.view(-1).shape[0] != self.num_envs:
                 assert False, f"Reward dict key '{key}' has incorrect shape: {value.view(-1).shape}"
@@ -1200,11 +1226,13 @@ class ArticulateTask(VecTask, IsaacGymCameraBase):
         for k, (cost_fn, rew_terms, rew_scale) in reward_params.items():
             rew_args = []
             for arg in rew_terms:
-                if isinstance(arg, str) and arg in reward_extras:
+                if isinstance(arg, (tuple, list, dict)):
+                    rew_args += [arg[k] for k in arg]
+                elif isinstance(arg, str) and arg in reward_extras:
                     rew_args.append(reward_extras[arg])
                 elif isinstance(arg, str) and arg in obs_dict:
                     rew_args.append(obs_dict[arg])
-                elif isinstance(arg, float):
+                elif isinstance(arg, (float, np.ndarray)):
                     rew_args.append(arg)
                 else:
                     raise TypeError("Invalid argument for reward function {}, ('{}')".format(k, arg))
@@ -1303,6 +1331,7 @@ class ArticulateTask(VecTask, IsaacGymCameraBase):
         else:
             palm_index = self.palm_index
         obs_dict = {} if not self.use_dict_obs else self.obs_dict
+        obs_dict["hand_dof_pos"] = self.shadow_hand_dof_pos
         obs_dict["hand_joint_pos"] = unscale(
             self.shadow_hand_dof_pos,
             self.shadow_hand_dof_lower_limits,

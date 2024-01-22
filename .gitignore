@@ -34,3 +34,4 @@ outputs/
 multirun/
 # isaacgymenvs/runs
 .git-copy/
+*.ipynb_checkpoints/

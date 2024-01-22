@@ -70,6 +70,17 @@ def tipped_penalty(object_rot, goal_rot, fall_dist: float = 0.24):
     return torch.where(object_pose_err > fall_dist, torch.ones_like(object_pose_err), torch.zeros_like(object_pose_err))
 
 
+@torch.jit.script
+def joint_limit_penalty(hand_dof_pos, dof_limit_low, dof_limit_high, dof_weights):
+    """reward to penalize hand pose nearing min/max of joint limits"""
+    # hand_dof_pos is num_envs x num_joints
+    dof_weights = dof_weights.view(1, -1)
+    return (
+        torch.linalg.norm(dof_weights * hand_dof_pos - dof_weights * dof_limit_low, dim=-1, keepdim=True).sum(dim=1)
+        + torch.linalg.norm(dof_weights * hand_dof_pos - dof_weights * dof_limit_high, dim=-1, keepdim=True).sum(dim=1)
+    ).view(-1, 1)
+
+
 def parse_reward_params(reward_params_dict):
     rew_params = {}
     for key, value in reward_params_dict.items():

@@ -18,6 +18,7 @@ defaults:
     - index_dist
     - middle_dist
     - ring_dist
+    - joint_limit_penalty
 
 # used to create the object
 name: ${if:${task.env.enableCameraSensors},ArticulateTaskCamera,ArticulateTask}

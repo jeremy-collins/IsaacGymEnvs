@@ -297,6 +297,7 @@ class RLGPUEnv(vecenv.IVecEnv):
             self.max_traj_len = log_trajectory.get("max_traj_len", 500)
             self.num_traj = log_trajectory.get("num_traj", 1)
             self.save_dir = log_trajectory.get("save_dir", "trajectory_logs/")
+            self.log_extras = log_trajectory.get("log_extras", [])
             self.config_name = config_name
             self.num_actors = num_actors
             if not os.path.exists(self.save_dir):
@@ -305,8 +306,9 @@ class RLGPUEnv(vecenv.IVecEnv):
             while os.path.exists(self.save_traj_path):
                 self.traj_num += 1
             print("Saving trajectory to: ", self.save_traj_path)
-            self.traj_idx = 0
+            self.traj_buffers_initialized = False
             self.traj_buffers = self.create_traj_buffers()
+            self.done_indices = torch.zeros(num_actors)
         else:
             self.log_trajectory = False
 
@@ -316,33 +318,47 @@ class RLGPUEnv(vecenv.IVecEnv):
         return save_traj_path
 
     def create_traj_buffers(self):
+        self.traj_idx = 0
+        
+        traj_buffers = {}
+        if self.traj_buffers_initialized:
+            traj_buffers = self.traj_buffers
         if isinstance(self.env.obs_space, gym.spaces.Dict):
-            traj_buffers = {
-                k: torch.zeros(self.max_traj_len, self.num_actors, *self.env.obs_space[k].shape) for k in self.env.obs_space.keys()
-            }
+            make_traj_buffer = lambda k: torch.zeros(self.max_traj_len, self.num_actors, *self.env.obs_space[k].shape) 
+            for k in self.env.obs_space.keys():
+                traj_buffers[k] = traj_buffers.get(k, make_traj_buffer(k)).zero_()
             if "actions" not in traj_buffers:
                 traj_buffers["actions"] = torch.zeros(self.max_traj_len, self.num_actors, *self.env.action_space.shape)
         else:
-            traj_buffers = {"obs": torch.zeros(self.max_traj_len, self.num_actors, *self.env.obs_space.shape),
-                            "actions": torch.zeros(self.max_traj_len, self.num_actors, *self.env.action_space.shape),}
+            traj_buffers["obs"] = traj_buffers.get("obs", torch.zeros(self.max_traj_len, self.num_actors, *self.env.obs_space.shape)).zero_()
+            traj_buffers["actions"] = traj_buffers.get("actions", torch.zeros(self.max_traj_len, self.num_actors, *self.env.action_space.shape)).zero_()
+        for k in self.log_extras:
+            traj_buffers[k] = traj_buffers.get(k, torch.zeros(self.max_traj_len, self.num_actors, 1)).zero_()
+        self.traj_buffers_initialized = True
         return traj_buffers
 
     def step(self, actions):
         obs,rew,done,info = self.env.step(actions)
         if self.log_trajectory and self.num_traj > 0:
             for k in self.traj_buffers:
-                self.traj_buffers[k][self.traj_idx] = obs["obs"][k]
+                if k in obs["obs"]:
+                    self.traj_buffers[k][self.traj_idx] = obs["obs"][k]
+                elif k in info:
+                    self.traj_buffers[k][self.traj_idx] = info[k].view(self.num_actors, 1)
+
             self.traj_buffers["actions"][self.traj_idx] = actions
             self.traj_idx += 1
-            if self.traj_idx == self.max_traj_len and self.num_traj > 0:
+            if done.sum() > 0:
+                self.done_indices[done] += 1
+            if (self.traj_idx == self.max_traj_len) or self.done_indices.sum() == self.num_actors:
                 self.save_trajectory()
-                self.traj_idx = 0
         return obs, rew, done, info
 
     def save_trajectory(self):
-        self.traj_buffers = {k: self.traj_buffers[k][: self.traj_idx] for k in self.traj_buffers.keys()}
-        torch.save(self.traj_buffers, self.save_traj_path)
-        del self.traj_buffers
+        self.done_indices.zero_()
+        traj_buffers = {k: self.traj_buffers[k][: self.traj_idx] for k in self.traj_buffers.keys()}
+        torch.save(traj_buffers, self.save_traj_path)
+        # del self.traj_buffers
         self.traj_buffers = self.create_traj_buffers()
         self.traj_num += 1
         self.num_traj -= 1

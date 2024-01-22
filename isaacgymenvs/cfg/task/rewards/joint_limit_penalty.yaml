@@ -1,0 +1,10 @@
+joint_limit_penalty:
+  reward_fn_partial: 
+    _partial_: true
+    _target_: isaacgymenvs.utils.rewards.joint_limit_penalty
+  args: 
+    - hand_dof_pos
+    - dof_limit_low
+    - dof_limit_high
+    - ${dict:[${device:${eval:'torch.cat([torch.zeros(6), torch.ones(16)])'},${sim_device}}],["dof_weights"]}
+  scale: -1.0
