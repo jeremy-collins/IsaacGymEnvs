@@ -586,6 +586,8 @@ class VecTask(Env):
             obs_and_states_dict["obs"] = torch.clamp(
                 self.obs_buf, -self.clip_obs, self.clip_obs
             ).to(self.rl_device)
+            if self.num_states > 0:
+                obs_and_states_dict["states"] = self.get_state()
 
         return obs_and_states_dict
 
