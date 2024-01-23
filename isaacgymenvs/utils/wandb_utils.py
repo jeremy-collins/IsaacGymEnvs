@@ -41,6 +41,7 @@ class WandbAlgoObserver(AlgoObserver):
             )
             if "sweep" in experiment_name.lower():
                 kwargs.pop("id")
+                kwargs.pop("resume")
             wandb.init(**kwargs)
 
             if cfg.wandb_logcode_dir:
