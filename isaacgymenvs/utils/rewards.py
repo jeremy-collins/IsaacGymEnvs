@@ -54,7 +54,7 @@ def manipulability_reward(object_pos): # (object_state, robot_state):
 
 @torch.jit.script
 def manipulability_frobenius_norm(manipulability):
-    # returns the spectral norm of the manipulability matrix. The first dimension is the batch dimension
+    # returns the frobenius norm of the manipulability matrix. The first dimension is the batch dimension
     return torch.linalg.norm(manipulability, dim=(-2, -1), ord='fro')
 
 @torch.jit.script
@@ -75,6 +75,31 @@ def manipulability_goal_cond(manipulability, object_pose, goal_pose):
     # (batch, 7), (batch, 7, 22) -> (batch, 22)
     weighted_manip = torch.einsum('ij,ijk->ik', err.float(), manipulability.float())
     return torch.linalg.vector_norm(weighted_manip, ord=2, dim=-1)
+
+@torch.jit.script
+def manipulability_frobenius_norm_vectorized(manipulability, object_pose, goal_pose, actions):
+    # returns the frobenius norm of the manipulability matrix. The first dimension is the batch dimension
+    # manipulability has shape (bs, output_dim) = (num_manips*input_dim, output_dim)
+    
+    input_dim = actions.shape[-1]
+    output_dim = object_pose.shape[-1]
+    # (num_manips*input_dim, output_dim) -> (num_manips, output_dim, input_dim)
+    manipulability_grouped = manipulability.reshape(-1, input_dim, output_dim).transpose(1, 2)
+
+    norms = torch.linalg.norm(manipulability_grouped, dim=(-2, -1), ord='fro') # (num_manips)
+    
+    # each env corresponding to the same manipulability matrix gets the same reward
+    rewards = norms.repeat_interleave(input_dim) # bs = num_manips*input_dim
+    return rewards
+
+@torch.jit.script
+def manipulability_l2_norm_rand_vec(manipulability):
+    # returns the frobenius norm of the manipulability matrix. The first dimension is the batch dimension
+    # manipulability has shape (bs, output_dim). Note that the number of rows is no longer related to the input dim
+
+    # taking the l2 norm of each row of the manipulability matrix
+    # return torch.linalg.norm(manipulability, dim=-1, ord=2)
+    return torch.linalg.vector_norm(manipulability, ord=2, dim=-1)
 
 def parse_reward_params(reward_params_dict):
     rew_params = {}

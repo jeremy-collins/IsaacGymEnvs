@@ -1,0 +1,7 @@
+manipulability_reward_vec:
+  reward_fn_partial: 
+    _partial_: true
+    _target_: isaacgymenvs.utils.rewards.manipulability_l2_norm_rand_vec
+  args:
+    - manipulability
+  scale: 1

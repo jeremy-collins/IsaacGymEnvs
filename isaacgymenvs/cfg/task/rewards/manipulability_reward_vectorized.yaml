@@ -1,0 +1,10 @@
+manipulability_reward_vectorized:
+  reward_fn_partial: 
+    _partial_: true
+    _target_: isaacgymenvs.utils.rewards.manipulability_frobenius_norm_vectorized
+  args:
+    - manipulability
+    - object_pose
+    - goal_pose
+    - actions
+  scale: 1

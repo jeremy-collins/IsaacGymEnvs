@@ -4,6 +4,6 @@ manipulability_reward:
     _target_: isaacgymenvs.utils.rewards.manipulability_frobenius_norm
   args:
     - manipulability
-    # - object_dof_pos
-    # - goal_dof_pos
+    # - object_pose
+    # - goal_pose
   scale: 1

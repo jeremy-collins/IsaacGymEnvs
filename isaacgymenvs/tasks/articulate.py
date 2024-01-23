@@ -1584,15 +1584,32 @@ class ArticulateTask(VecTask, IsaacGymCameraBase):
         obs_dict["object_type_one_hot"] = object_type_one_hot.to(self.device)
 
         # print("self.reward_params", self.reward_params)
-        if not skip_manipulability and (
-            "manipulability_reward" in self.reward_params.keys()
-            or "manipulability_reward_goal_cond" in self.reward_params.keys()
+        # if not skip_manipulability and (
+        #     "manipulability_reward" in self.reward_params.keys()
+        #     or "manipulability_reward_goal_cond" in self.reward_params.keys()
+        #     or "manipulability_reward_vectorized" in self.reward_params.keys()
+        # ):
+
+        # just checking for the word "manipulability" in the reward_params keys
+        if not skip_manipulability and any(
+            ["manipulability" in key for key in self.reward_params.keys()]
         ):
-            actions_copy = self.actions.clone()  
-            obs_dict["manipulability"] = self.get_manipulability_fd(f=self.manip_step, obs_dict=obs_dict, obs_keys=["object_pose"], action=self.actions) # action=torch.zeros_like(self.actions))
-            self.assign_act(actions_copy)
+
+            actions_copy = self.actions.clone()
+            
+            if "manipulability_reward" in self.reward_params.keys():
+                obs_dict["manipulability"] = self.get_manipulability_fd(f=self.manip_step, obs_dict=obs_dict, obs_keys=["object_pose"], action=self.actions) # action=torch.zeros_like(self.actions))
+            elif "manipulability_reward_vectorized" in self.reward_params.keys():
+                obs_dict["manipulability"] = self.get_manipulability_fd_parallel_actions(f=self.manip_step, obs_dict=obs_dict, obs_keys=["object_pose"], action=self.actions) # action=torch.zeros_like(self.actions))
+            elif "manipulability_reward_vec" in self.reward_params.keys():
+                obs_dict["manipulability"] = self.get_manipulability_fd_rand_eps_vec(f=self.manip_step, obs_dict=obs_dict, obs_keys=["object_pose"], action=self.actions)
+            else:
+                raise NotImplementedError
+            
             # obs_dict["manipulability"] = torch.zeros((self.num_envs, 1, 1), device=self.device) # placeholder
             # print("manipulability", obs_dict["manipulability"])
+
+            self.assign_act(actions_copy)
 
         self.current_obs_dict = obs_dict
         # for key in self.obs_keys:
@@ -1707,16 +1724,18 @@ class ArticulateTask(VecTask, IsaacGymCameraBase):
             self.extras,
         )
 
-    def manip_reset(self, actor_root_state_tensor, dof_state_tensor, rigid_body_tensor):
-        self.gym.set_actor_root_state_tensor(
-            self.sim,
-            gymtorch.unwrap_tensor(actor_root_state_tensor)
-        )
-        self.gym.set_dof_state_tensor(
-            self.sim,
-            gymtorch.unwrap_tensor(dof_state_tensor)
-        )
-        # self.gym.set_rigid_body_state_tensor(
+    def manip_reset(self, actor_root_state_tensor=None, dof_state_tensor=None, rigid_body_tensor=None):
+        if actor_root_state_tensor is not None:
+            self.gym.set_actor_root_state_tensor(
+                self.sim,
+                gymtorch.unwrap_tensor(actor_root_state_tensor)
+            )
+        if dof_state_tensor is not None:
+            self.gym.set_dof_state_tensor(
+                self.sim,
+                gymtorch.unwrap_tensor(dof_state_tensor)
+            )
+        # self.gym.set_rigid_body_state_tensor( # doesnt work
         #     self.sim,
         #     gymtorch.unwrap_tensor(rigid_body_tensor)
         # )
@@ -1933,8 +1952,121 @@ class ArticulateTask(VecTask, IsaacGymCameraBase):
 
             self.manip_reset(initial_actor_root_state_tensor, initial_dof_state_tensor, initial_rigid_body_state_tensor)
 
+            # garbage collection
+            del initial_actor_root_state_tensor
+            del initial_dof_state_tensor
+            del initial_rigid_body_state_tensor
+
         return manipulability_fd
 
+    def get_manipulability_fd_parallel_actions(self, f, obs_dict, obs_keys, action, eps=1e-2):
+        '''
+        Calculates finite difference manipulability by perturbing each action dimension separately across parallel environments.
+
+        Args:
+            f (function): dynamics function
+            obs_keys: list of keys to obs_dict
+            action: action
+            eps: finite difference step
+        '''
+
+        initial_actor_root_state_tensor = gymtorch.wrap_tensor(self.gym.acquire_actor_root_state_tensor(self.sim)).clone()
+        initial_dof_state_tensor = gymtorch.wrap_tensor(self.gym.acquire_dof_state_tensor(self.sim)).clone()
+        initial_rigid_body_state_tensor = gymtorch.wrap_tensor(self.gym.acquire_rigid_body_state_tensor(self.sim)).clone()
+
+        obs = self.obs_dict_to_tensor(obs_dict, obs_keys)
+        bs = action.shape[0]
+        input_dim = action.shape[1]
+        output_dim = obs.shape[1]
+        # manipulability_fd = torch.empty((bs, output_dim, input_dim), dtype=torch.float64, device=self.device) # TODO: allocate outside of this function
+
+        assert bs % (input_dim) == 0, "batch size must be divisible by input dim for vectorized finite difference manipulability calculation"
+        
+        num_manips = bs // input_dim
+
+        # TODO: randomize num_manips states in groups of size input_dim, with each group having the same state
+
+        eps_parallel = torch.eye(input_dim, device=self.device).repeat(num_manips, 1) * eps
+
+        # for i in range(input_dim):
+        action += eps_parallel # perturbing the input (x + eps for each dimension)
+
+        obs_dict_1, _, _, _ = f(action)
+        action -= 2 * eps_parallel # perturbing the input the other way (x - eps for each dimension)
+
+        obs_dict_2, _, _, _ = f(action)
+        action += eps_parallel # set the input back to initial value
+
+        next_state_1 = self.obs_dict_to_tensor(obs_dict_1, obs_keys) # (num_manips*input_dim, output_dim)
+        next_state_2 = self.obs_dict_to_tensor(obs_dict_2, obs_keys) # (num_manips*input_dim, output_dim)
+
+        # doutput/dinput
+        manipulability_fd = (next_state_1 - next_state_2) / (2 * eps) # (num_manips*input_dim, output_dim)
+
+        self.manip_reset(initial_actor_root_state_tensor, initial_dof_state_tensor, initial_rigid_body_state_tensor)
+
+        # garbage collection
+        del initial_actor_root_state_tensor
+        del initial_dof_state_tensor
+        del initial_rigid_body_state_tensor
+
+        return manipulability_fd
+
+    def get_manipulability_fd_rand_eps_vec(self, f, obs_dict, obs_keys, action, eps=1e-2):
+        '''
+        Calculates finite difference manipulability by randomly perturbing actions separately across parallel environments.
+
+        Args:
+            f (function): dynamics function
+            obs_keys: list of keys to obs_dict
+            action: action
+            eps: finite difference step
+        '''
+
+        try:
+            initial_actor_root_state_tensor = gymtorch.wrap_tensor(self.gym.acquire_actor_root_state_tensor(self.sim))
+            initial_dof_state_tensor = gymtorch.wrap_tensor(self.gym.acquire_dof_state_tensor(self.sim))
+            initial_rigid_body_state_tensor = gymtorch.wrap_tensor(self.gym.acquire_rigid_body_state_tensor(self.sim))
+        except:
+            raise NotImplementedError("unable to acquire state tensors")
+
+        obs = self.obs_dict_to_tensor(obs_dict, obs_keys)
+        bs = action.shape[0]
+        input_dim = action.shape[1]
+        output_dim = obs.shape[1]
+        # manipulability_fd = torch.empty((bs, output_dim, input_dim), dtype=torch.float64, device=self.device) # TODO: allocate outside of this function
+
+        # zero_prob = 0.5
+        # rand = torch.rand((bs, input_dim), device=self.device)
+        # eps_parallel = (rand > zero_prob).int() * eps
+
+        # making eps parallel a random unit vector for each row
+        rand = torch.randn((bs, input_dim), device=self.device)
+        eps_parallel = rand / torch.norm(rand, dim=1, keepdim=True) * eps
+
+        # for i in range(input_dim):
+        action += eps_parallel # perturbing the input (x + eps for each dimension)
+
+        obs_dict_1, _, _, _ = f(action)
+        action -= 2 * eps_parallel # perturbing the input the other way (x - eps for each dimension)
+
+        obs_dict_2, _, _, _ = f(action)
+        action += eps_parallel # set the input back to initial value
+
+        next_state_1 = self.obs_dict_to_tensor(obs_dict_1, obs_keys) # (num_manips*input_dim, output_dim)
+        next_state_2 = self.obs_dict_to_tensor(obs_dict_2, obs_keys) # (num_manips*input_dim, output_dim)
+
+        # doutput/dinput
+        manipulability_fd = (next_state_1 - next_state_2) / (2 * eps) # (num_manips*input_dim, output_dim)
+
+        self.manip_reset(initial_actor_root_state_tensor, initial_dof_state_tensor, initial_rigid_body_state_tensor)
+        
+        # garbage collection
+        del initial_actor_root_state_tensor
+        del initial_dof_state_tensor
+        del initial_rigid_body_state_tensor
+
+        return manipulability_fd
 
 class ArticulateTaskCamera(ArticulateTask):
     dict_obs_cls: bool = True
