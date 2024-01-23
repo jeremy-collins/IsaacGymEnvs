@@ -58,6 +58,7 @@ env:
   forceDecayInterval: 0.08
   useOneHot: true  
   objectDofName: "joint_0"
+  objectMassBaseOnly: False
   maxConsecutiveSuccesses: 100
 
   varDims:

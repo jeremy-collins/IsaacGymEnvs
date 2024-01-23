@@ -2,9 +2,6 @@ defaults:
   - ArticulateBase
   - _self_
 
-physics_engine: ${..physics_engine}
-
-# if given, will override the device setting in gym.
 env:
   # reward -> dictionary
   successTolerance: 0.005
