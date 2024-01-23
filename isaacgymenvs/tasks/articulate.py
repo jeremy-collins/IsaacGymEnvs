@@ -140,7 +140,7 @@ class ArticulateTask(VecTask, IsaacGymCameraBase):
         self.translation_scale = self.cfg["env"].get("translation_scale", 0.1)
         self.orientation_scale = self.cfg["env"].get("orientation_scale", 0.1)
         self.load_default_pos = self.cfg["env"].get("load_default_pos", True)
-        self.log_reward_info = self.cfg["env"].get("log_reward_info", True)
+        self.log_reward_info = self.cfg["env"].get("log_reward_info", False)
 
         self.object_type = self.cfg["env"]["objectType"]
         self.object_instance = self.cfg["env"].get("objectInstance", {})
