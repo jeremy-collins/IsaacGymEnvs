@@ -50,6 +50,7 @@ wandb_entity: 'krshna'
 wandb_project: 'isaacgymenvs'
 wandb_tags: []
 wandb_logcode_dir: '' 
+wandb_notes: '' 
 
 capture_video: False
 capture_video_freq: 1464

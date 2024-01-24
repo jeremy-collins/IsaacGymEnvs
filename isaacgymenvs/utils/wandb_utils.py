@@ -37,6 +37,7 @@ class WandbAlgoObserver(AlgoObserver):
                 id=wandb_unique_id,
                 name=experiment_name,
                 resume=True,
+                notes=cfg.wandb_notes,
                 settings=wandb.Settings(start_method="fork"),
             )
             if "sweep" in experiment_name.lower():
