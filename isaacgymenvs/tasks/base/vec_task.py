@@ -331,8 +331,6 @@ class VecTask(Env):
         self.set_viewer()
         self.allocate_buffers()
 
-        self.obs_dict = {}
-
     def set_viewer(self):
         """Create the viewer."""
 
