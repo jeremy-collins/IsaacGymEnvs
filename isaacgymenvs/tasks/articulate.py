@@ -529,10 +529,10 @@ class ArticulateTask(VecTask, IsaacGymCameraBase):
             if "start_pose.npz" in os.listdir(os.path.join(asset_root, os.path.dirname(object_asset_file))):
                 start_pose = np.load(os.path.join(asset_root, os.path.dirname(object_asset_file), "start_pose.npz"))
 
-            if object_id < SUPPORTED_PARTNET_OBJECTS.index(
-                "scissors"
-            ):  # spring-loaded objects, use PD controller to restore
-                object_dof_props["driveMode"].fill(gymapi.DOF_MODE_POS)
+            # if object_id < SUPPORTED_PARTNET_OBJECTS.index(
+            #     "scissors"
+            # ):  # spring-loaded objects, use PD controller to restore position
+            object_dof_props["driveMode"].fill(gymapi.DOF_MODE_POS)
 
             if self.object_stiffness:
                 object_dof_props["stiffness"][object_target_dof_idx] = self.object_stiffness
