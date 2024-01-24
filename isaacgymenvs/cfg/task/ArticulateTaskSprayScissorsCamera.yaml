@@ -1,0 +1,20 @@
+defaults:
+  - ArticulateTaskCamera
+  - _self_
+
+physics_engine: ${..physics_engine}
+
+env:
+  objectType: 
+    - "spray_bottle" 
+    - "scissors" 
+  objectDofName: "joint_0"
+  objectDofTargetPos: 
+    - 0.075  
+    - 0.08  
+    - 0.2
+    - -0.36
+  scaleDofPos: false
+  objectInstance:
+    spray_bottle: [0, 1]
+    scissors: [0, 1]

@@ -6,4 +6,4 @@ hand_dist:
     - object_pos
     - hand_palm_pos
     - fingertip_pos
-  scale: 0.75
+  scale: -0.75
