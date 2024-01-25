@@ -10,7 +10,7 @@ env:
     - "dispenser"
     # - "spray_bottle" # can be block, egg or pen
   objectInstance:
-    dispenser: [0]
+    dispenser: [1]
   objectDofName: "joint_0"
   objectDofTargetPos: 
     - 0.025
