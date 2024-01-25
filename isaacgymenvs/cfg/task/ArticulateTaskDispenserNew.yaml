@@ -1,5 +1,5 @@
 defaults:
-  - ArticulateBase
+  - ArticulateTaskNew
   - _self_
 
 env:
