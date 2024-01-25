@@ -113,7 +113,10 @@ env:
       - "urdf/objects/spray_bottle3/mobility.urdf"
       - "urdf/objects/spray_bottle4/mobility.urdf"
       - "urdf/objects/spray_bottle5/mobility.urdf"
-    assetFileNameDispenser: "urdf/objects/dispenser/mobility.urdf"
+    assetFileNameDispenser: 
+      - "urdf/objects/dispenser/mobility.urdf"
+      - "urdf/objects/dispenser2/mobility.urdf"
+      - "urdf/objects/dispenser3/mobility.urdf"
     assetFileNameScissors: 
       - "urdf/objects/scissors/mobility.urdf"
       - "urdf/objects/scissors2/mobility.urdf"
