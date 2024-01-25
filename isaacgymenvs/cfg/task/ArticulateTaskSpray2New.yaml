@@ -9,4 +9,4 @@ env:
     spray_bottle: 
       - 1
   objectDofTargetPos: 
-    - 0.08
+    - 0.075

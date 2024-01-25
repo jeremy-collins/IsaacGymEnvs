@@ -515,6 +515,7 @@ class ArticulateTask(VecTask, IsaacGymCameraBase):
         # load articulated object and goal assets
         self.allegro_hand_dof_default_pos = []
         self.object_assets = []
+        self.object_dof_props = []
         self.goal_assets = []
         self.start_poses = []
 
@@ -558,6 +559,7 @@ class ArticulateTask(VecTask, IsaacGymCameraBase):
             self.object_dof_lower_limits.append(object_dof_props["lower"])
             self.object_dof_upper_limits.append(object_dof_props["upper"])
             self.object_assets.append(object_asset)
+            self.object_dof_props.append(object_dof_props)
             self.goal_assets.append(goal_asset)
             self.start_poses.append(object_start_pose)
 
@@ -693,8 +695,9 @@ class ArticulateTask(VecTask, IsaacGymCameraBase):
             for i in range(len(self.num_object_bodies))
         ]
         for i in range(num_envs):
-            object_asset, goal_asset = (
+            object_asset, object_dof_props, goal_asset = (
                 self.object_assets[i % len(self.object_assets)],
+                self.object_dof_props[i % len(self.object_dof_props)],
                 self.goal_assets[i % len(self.goal_assets)],
             )
             object_start_pose, goal_start_pose = poses[i % len(poses)]
@@ -743,6 +746,7 @@ class ArticulateTask(VecTask, IsaacGymCameraBase):
 
             # add object
             object_handle = self.gym.create_actor(env_ptr, object_asset, object_start_pose, "object", i, 0, 1)
+            self.gym.set_actor_dof_properties(env_ptr, object_handle, object_dof_props)
             self.object_actor_handles.append(object_handle)
             rb_props = self.gym.get_actor_rigid_body_properties(env_ptr, object_handle)
             if self.object_mass_base_only:
@@ -882,6 +886,14 @@ class ArticulateTask(VecTask, IsaacGymCameraBase):
             env_ids,
             self.num_dofs_with_object : self.num_dofs_with_object + self.num_object_dofs,
         ] = object_target_dof
+        # if "spray_bottle" in self.object_type and self.use_dict_obs:
+        #     env_ids_mask = (
+        #         self.obs_dict["object_type"][env_ids] == SUPPORTED_PARTNET_OBJECTS.index("spray_bottle").flatten()
+        #     )
+        #     self.object_dof_state[env_ids[env_ids_mask], :, 0] = 0.0
+        #     self.prev_targets[
+        #         env_ids[env_ids_mask], self.num_dofs_with_object - self.num_object_dofs : self.num_dofs_with_object
+        #     ] = 0.0
         self.gym.set_dof_position_target_tensor_indexed(
             self.sim,
             gymtorch.unwrap_tensor(self.prev_targets),
@@ -1347,12 +1359,11 @@ class ArticulateTask(VecTask, IsaacGymCameraBase):
         obs_dict["object_ang_vel"] = self.vel_obs_scale * self.root_state_tensor[self.object_indices, 10:13]
 
         obs_dict["object_dof_pos"] = self.object_dof_pos.view(self.num_envs, -1)
-        if self.scale_dof_pos:
-            obs_dict["object_dof_pos"] = unscale(
-                obs_dict["object_dof_pos"].view(self.num_envs // self.num_objects, self.num_objects, -1),
-                self.object_dof_lower_limits,
-                self.object_dof_upper_limits,
-            ).view(self.num_envs, -1)
+        obs_dict["object_dof_pos_scaled"] = unscale(
+            obs_dict["object_dof_pos"].view(self.num_envs // self.num_objects, self.num_objects, -1),
+            self.object_dof_lower_limits,
+            self.object_dof_upper_limits,
+        ).view(self.num_envs, -1)
 
         if isinstance(self.object_target_dof_pos, torch.Tensor):
             assert len(self.object_target_dof_pos) in [
@@ -1368,12 +1379,11 @@ class ArticulateTask(VecTask, IsaacGymCameraBase):
             object_target_dof = self.object_target_dof_pos * torch.ones_like(obs_dict["object_dof_pos"])
 
         obs_dict["goal_dof_pos"] = object_target_dof.view(self.num_envs, -1)
-        if self.scale_dof_pos:
-            obs_dict["goal_dof_pos"] = unscale(
-                obs_dict["goal_dof_pos"].view(self.num_envs // self.num_objects, self.num_objects, -1),
-                self.object_dof_lower_limits,
-                self.object_dof_upper_limits,
-            ).view(self.num_envs, -1)
+        obs_dict["goal_dof_pos_scaled"] = unscale(
+            obs_dict["goal_dof_pos"].view(self.num_envs // self.num_objects, self.num_objects, -1),
+            self.object_dof_lower_limits,
+            self.object_dof_upper_limits,
+        ).view(self.num_envs, -1)
 
         obs_dict["hand_init_pos"] = self.hand_init_pos
         obs_dict["hand_init_quat"] = self.hand_init_quat

@@ -19,7 +19,7 @@ env:
     - 0.2
     # - -0.36
     # - 0.6
-    # - -0.75
+    # - -0.6
   objectStiffness: 0
-  objectDamping: 10
+  objectDamping: 0.5
   fixObjectBase: true

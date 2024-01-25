@@ -20,7 +20,7 @@
 		<axis xyz="1 0 0"/>
 		<child link="link_0"/>
 		<parent link="link_1"/>
-		<limit lower="-0.0" upper="1.0471975511965976"/>
+		<limit lower="0.0" upper="1.0471975511965976"/>
 	</joint>
 	<link name="link_1">
 		<visual name="head-3">
