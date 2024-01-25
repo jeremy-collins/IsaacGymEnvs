@@ -66,7 +66,7 @@
 		<axis xyz="0 -1 0"/>
 		<child link="link_0_helper"/>
 		<parent link="link_1"/>
-		<limit lower="0" upper="0.175"/>
+		<limit lower="0" upper="0.03"/>
 	</joint>
 	<link name="link_1_helper"/>
 	<joint name="joint_4_fixed" type="fixed">
