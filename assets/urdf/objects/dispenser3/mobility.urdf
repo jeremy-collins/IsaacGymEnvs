@@ -1,0 +1,78 @@
+<?xml version="1.0" ?>
+<robot name="partnet_af3763054969179d5a539e595e9e07ce">
+	<link name="base"/>
+	<link name="link_0">
+		<visual name="pressing_lid-1">
+			<origin xyz="-0.001048913938219064 0 0.0018129177996702261"/>
+			<geometry>
+				<mesh filename="textured_objs/original-3.obj" scale="0.18 0.18 0.18"/>
+			</geometry>
+		</visual>
+		<collision>
+			<origin xyz="-0.001048913938219064 0 0.0018129177996702261"/>
+			<geometry>
+				<mesh filename="textured_objs/original-3.obj" scale="0.18 0.18 0.18"/>
+			</geometry>
+		</collision>
+	</link>
+	<joint name="joint_0_fixed" type="fixed">
+		<origin xyz="0.0 0 0.0"/>
+		<axis xyz="0 1 0"/>
+		<child link="link_0"/>
+		<parent link="link_0_helper"/>
+	</joint>
+	<link name="link_1">
+		<visual name="head-3">
+			<origin xyz="-0.0010489139382190626 0 0.0018129177996702266"/>
+			<geometry>
+				<mesh filename="textured_objs/original-2.obj" scale="0.18 0.18 0.18"/>
+			</geometry>
+		</visual>
+		<collision>
+			<origin xyz="-0.0010489139382190626 0 0.0018129177996702266"/>
+			<geometry>
+				<mesh filename="textured_objs/original-2.obj" scale="0.18 0.18 0.18"/>
+			</geometry>
+		</collision>
+	</link>
+	<joint name="joint_1_fixed" type="fixed">
+		<origin xyz="0.0 0 0.0"/>
+		<axis xyz="0 1 0"/>
+		<child link="link_1"/>
+		<parent link="link_1_helper"/>
+	</joint>
+	<link name="link_2">
+		<visual name="base_body-4">
+			<origin xyz="0 0 0"/>
+			<geometry>
+				<mesh filename="textured_objs/original-1.obj" scale="0.18 0.18 0.18"/>
+			</geometry>
+		</visual>
+		<collision>
+			<origin xyz="0 0 0"/>
+			<geometry>
+				<mesh filename="textured_objs/original-1.obj" scale="0.18 0.18 0.18"/>
+			</geometry>
+		</collision>
+	</link>
+	<joint name="joint_2_fixed" type="fixed">
+		<origin rpy="1.570796326794897 0 -1.570796326794897" xyz="0 0 0"/>
+		<child link="link_2"/>
+		<parent link="base"/>
+	</joint>
+	<link name="link_0_helper"/>
+	<joint name="joint_0" type="prismatic">
+		<origin xyz="1.248880882543081e-18 0 6.244404412715405e-19"/>
+		<axis xyz="0 -1 0"/>
+		<child link="link_0_helper"/>
+		<parent link="link_1"/>
+		<limit lower="0" upper="0.175"/>
+	</joint>
+	<link name="link_1_helper"/>
+	<joint name="joint_4_fixed" type="fixed">
+		<origin xyz="0.0010489139382190626 0 -0.0018129177996702266"/>
+		<axis xyz="0 1 0"/>
+		<child link="link_1_helper"/>
+		<parent link="link_2"/>
+	</joint>
+</robot>
