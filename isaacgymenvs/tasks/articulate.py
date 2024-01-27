@@ -141,6 +141,7 @@ class ArticulateTask(VecTask, IsaacGymCameraBase):
         self.orientation_scale = self.cfg["env"].get("orientation_scale", 0.1)
         self.load_default_pos = self.cfg["env"].get("load_default_pos", True)
         self.log_reward_info = self.cfg["env"].get("log_reward_info", False)
+        self.load_goal_asset = self.cfg["env"].get("loadGoalAsset", False)
 
         self.object_type = self.cfg["env"]["objectType"]
         self.object_instance = self.cfg["env"].get("objectInstance", {})
@@ -285,6 +286,8 @@ class ArticulateTask(VecTask, IsaacGymCameraBase):
         actor_root_state_tensor = self.gym.acquire_actor_root_state_tensor(self.sim)
         dof_state_tensor = self.gym.acquire_dof_state_tensor(self.sim)
         rigid_body_tensor = self.gym.acquire_rigid_body_state_tensor(self.sim)
+        _net_cf = self.gym.acquire_net_contact_force_tensor(self.sim)
+        self.net_cf = gymtorch.wrap_tensor(_net_cf)
 
         if self.cfg["env"].get("saveRigidBodyState", False):
             assert self.device == "cpu", "saveRigidBodyState only works with CPU tensors!"
@@ -303,12 +306,13 @@ class ArticulateTask(VecTask, IsaacGymCameraBase):
 
             dof_force_tensor = self.gym.acquire_dof_force_tensor(self.sim)
             self.dof_force_tensor = gymtorch.wrap_tensor(dof_force_tensor).view(
-                self.num_envs, self.num_dofs_with_object + self.num_object_dofs
+                self.num_envs, self.num_dofs_with_object + self.num_object_dofs * self.load_goal_asset
             )[:, : self.num_shadow_hand_dofs]
 
         self.gym.refresh_actor_root_state_tensor(self.sim)
         self.gym.refresh_dof_state_tensor(self.sim)
         self.gym.refresh_rigid_body_state_tensor(self.sim)
+        self.gym.refresh_net_contact_force_tensor(self.sim)
 
         self.dof_state = gymtorch.wrap_tensor(dof_state_tensor)
         self.shadow_hand_dof_state = self.dof_state.view(self.num_envs, -1, 2)[:, : self.num_shadow_hand_dofs]
@@ -318,10 +322,12 @@ class ArticulateTask(VecTask, IsaacGymCameraBase):
             self.object_dof_state = self.dof_state.view(self.num_envs, -1, 2)[
                 :, self.num_shadow_hand_dofs : self.num_dofs_with_object
             ]
-            self.goal_dof_state = self.dof_state.view(self.num_envs, -1, 2)[
-                :,
-                self.num_dofs_with_object : self.num_dofs_with_object + self.num_object_dofs,
-            ]
+            self.goal_dof_state = None
+            if self.load_goal_asset:
+                self.goal_dof_state = self.dof_state.view(self.num_envs, -1, 2)[
+                    :,
+                    self.num_dofs_with_object : self.num_dofs_with_object + self.num_object_dofs,
+                ]
             self.object_dof_pos = self.object_dof_state[..., 0]
             self.object_dof_vel = self.object_dof_state[..., 1]
 
@@ -546,7 +552,10 @@ class ArticulateTask(VecTask, IsaacGymCameraBase):
 
             object_asset_options.disable_gravity = True
             object_asset_options.fix_base_link = True
-            goal_asset = self.gym.load_asset(self.sim, asset_root, object_asset_file, object_asset_options)
+            if self.load_goal_asset:
+                goal_asset = self.gym.load_asset(self.sim, asset_root, object_asset_file, object_asset_options)
+            else:
+                goal_asset = None
             return object_asset, goal_asset, object_dof_props, start_pose
 
         # Load object assets from from files, as well as object-specific pose data
@@ -566,12 +575,16 @@ class ArticulateTask(VecTask, IsaacGymCameraBase):
         if any([otype in SUPPORTED_PARTNET_OBJECTS for otype in self.object_type]):
             self.object_dof_lower_limits = to_torch(self.object_dof_lower_limits, device=self.device)
             self.object_dof_upper_limits = to_torch(self.object_dof_upper_limits, device=self.device)
-        self.num_object_bodies = [
-            self.gym.get_asset_rigid_body_count(object_asset) for object_asset in self.object_assets
-        ]
+        self.num_object_bodies = list(map(lambda x: self.gym.get_asset_rigid_body_count(x), self.object_assets))
         self.num_object_shapes = [
             self.gym.get_asset_rigid_shape_count(object_asset) for object_asset in self.object_assets
         ]
+        if self.load_goal_asset:
+            self.num_goal_bodies = list(map(lambda x: self.gym.get_asset_rigid_body_count(x), self.goal_assets))
+            self.num_goal_shapes = list(map(lambda x: self.gym.get_asset_rigid_shape_count(x), self.goal_assets))
+        else:
+            self.num_goal_bodies = [0] * len(self.goal_assets)
+            self.num_goal_shapes = [0] * len(self.goal_assets)
 
         self.object_target_dof_idx = []
         for task_id, object_asset in zip(self.env_task_order, self.object_assets):
@@ -660,8 +673,8 @@ class ArticulateTask(VecTask, IsaacGymCameraBase):
         # allegro_hand_start_pose.r = gymapi.Quat.from_euler_zyx(*start_pose_init[3:6])
 
         # compute aggregate size
-        max_agg_bodies = self.num_shadow_hand_bodies + max(self.num_object_bodies) * 2
-        max_agg_shapes = self.num_shadow_hand_shapes + max(self.num_object_shapes) * 2
+        max_agg_bodies = self.num_shadow_hand_bodies + max(self.num_object_bodies) + max(self.num_goal_bodies)
+        max_agg_shapes = self.num_shadow_hand_shapes + max(self.num_object_shapes) + max(self.num_goal_shapes)
 
         self.shadow_hands = []
         self.object_actor_handles = []
@@ -684,7 +697,8 @@ class ArticulateTask(VecTask, IsaacGymCameraBase):
         self.fingertip_indices = [
             self.gym.find_asset_rigid_body_index(allegro_hand_asset, name) for name in self.fingertips
         ]
-        self.shadow_hand_rb_handles = list(range(self.num_shadow_hand_bodies))
+        bodies_per_env = np.concatenate([[0], np.cumsum(self.num_object_bodies) + np.cumsum(self.num_goal_bodies)])
+        self.shadow_hand_rb_handles = [self.num_shadow_hand_bodies * i + np.arange(self.num_shadow_hand_bodies) + bodies_per_env[i] for i in range(len(self.num_object_bodies))]
         self.object_rb_handles = [
             list(
                 range(
@@ -779,17 +793,18 @@ class ArticulateTask(VecTask, IsaacGymCameraBase):
             self.object_indices.append(object_idx)
 
             # add goal object
-            goal_handle = self.gym.create_actor(
-                env_ptr,
-                goal_asset,
-                goal_start_pose,
-                "goal_object",
-                i + self.num_envs,
-                0,
-                1,
-            )
-            goal_object_idx = self.gym.get_actor_index(env_ptr, goal_handle, gymapi.DOMAIN_SIM)
-            self.goal_object_indices.append(goal_object_idx)
+            if goal_asset:
+                goal_handle = self.gym.create_actor(
+                    env_ptr,
+                    goal_asset,
+                    goal_start_pose,
+                    "goal_object",
+                    i + self.num_envs,
+                    0,
+                    1,
+                )
+                goal_object_idx = self.gym.get_actor_index(env_ptr, goal_handle, gymapi.DOMAIN_SIM)
+                self.goal_object_indices.append(goal_object_idx)
 
             if self.object_type != "block":
                 self.gym.set_rigid_body_color(
@@ -799,13 +814,14 @@ class ArticulateTask(VecTask, IsaacGymCameraBase):
                     gymapi.MESH_VISUAL,
                     gymapi.Vec3(0.6, 0.72, 0.98),
                 )
-                self.gym.set_rigid_body_color(
-                    env_ptr,
-                    goal_handle,
-                    0,
-                    gymapi.MESH_VISUAL,
-                    gymapi.Vec3(0.6, 0.72, 0.98),
-                )
+                if goal_asset:
+                    self.gym.set_rigid_body_color(
+                        env_ptr,
+                        goal_handle,
+                        0,
+                        gymapi.MESH_VISUAL,
+                        gymapi.Vec3(0.6, 0.72, 0.98),
+                    )
 
             if self.aggregate_mode > 0:
                 self.gym.end_aggregate(env_ptr)
@@ -825,7 +841,7 @@ class ArticulateTask(VecTask, IsaacGymCameraBase):
             self.num_envs, 13
         )
         self.goal_states = self.object_init_state.clone()
-        self.goal_states[:, self.up_axis_idx] += 0.04
+        self.goal_states[:, self.up_axis_idx] += 0.04  # lifted up 4 centimeters from initial pose
         self.goal_init_state = self.goal_states.clone()
         self.hand_start_states = to_torch(self.hand_start_states, device=self.device).view(self.num_envs, 13)
 
@@ -863,63 +879,54 @@ class ArticulateTask(VecTask, IsaacGymCameraBase):
         self.goal_object_indices = to_torch(self.goal_object_indices, dtype=torch.long, device=self.device)
 
     def reset_target_pose(self, env_ids, apply_reset=False):
-        self.goal_states[env_ids, 0:7] = self.goal_init_state[env_ids, 0:7]
-
-        # sets goal object position
-        self.root_state_tensor[self.goal_object_indices[env_ids], 0:3] = (
-            self.goal_states[env_ids, 0:3] + self.goal_displacement_tensor
-        )
-
-        # sets goal object rotation
-        self.root_state_tensor[self.goal_object_indices[env_ids], 3:7] = self.goal_states[env_ids, 3:7]
-
-        # reset goal task pose
         if isinstance(self.object_target_dof_pos, torch.Tensor) and len(self.object_target_dof_pos) > 1:
             object_target_dof = self.object_target_dof_pos.repeat(self.num_envs // self.num_objects).unsqueeze(-1)[
                 env_ids
             ]
         else:
-            object_target_dof = self.object_target_dof_pos  # TODO: resample goal dof state
-        self.goal_dof_state[env_ids, :, 0] = object_target_dof
-        goal_indices = self.goal_object_indices[env_ids].to(torch.int32)
-        self.prev_targets[
-            env_ids,
-            self.num_dofs_with_object : self.num_dofs_with_object + self.num_object_dofs,
-        ] = object_target_dof
-        # if "spray_bottle" in self.object_type and self.use_dict_obs:
-        #     env_ids_mask = (
-        #         self.obs_dict["object_type"][env_ids] == SUPPORTED_PARTNET_OBJECTS.index("spray_bottle").flatten()
-        #     )
-        #     self.object_dof_state[env_ids[env_ids_mask], :, 0] = 0.0
-        #     self.prev_targets[
-        #         env_ids[env_ids_mask], self.num_dofs_with_object - self.num_object_dofs : self.num_dofs_with_object
-        #     ] = 0.0
-        self.gym.set_dof_position_target_tensor_indexed(
-            self.sim,
-            gymtorch.unwrap_tensor(self.prev_targets),
-            gymtorch.unwrap_tensor(goal_indices),
-            len(env_ids),
-        )
-        self.gym.set_dof_state_tensor_indexed(
-            self.sim,
-            gymtorch.unwrap_tensor(self.dof_state),
-            gymtorch.unwrap_tensor(goal_indices),
-            len(env_ids),
-        )
+            object_target_dof = self.object_target_dof_pos  # TODO: resample goal dof state here
 
-        # zeroes velocities
-        self.root_state_tensor[self.goal_object_indices[env_ids], 7:13] = torch.zeros_like(
-            self.root_state_tensor[self.goal_object_indices[env_ids], 7:13]
-        )
+        # sets goal object position and rotation and dof pos
+        if self.load_goal_asset:
+            self.goal_states[env_ids, 0:7] = self.goal_init_state[env_ids, 0:7]
+            self.root_state_tensor[self.goal_object_indices[env_ids], 0:3] = (
+                self.goal_states[env_ids, 0:3] + self.goal_displacement_tensor
+            )
+            self.root_state_tensor[self.goal_object_indices[env_ids], 3:7] = self.goal_states[env_ids, 3:7]
+            self.goal_dof_state[env_ids, :, 0] = object_target_dof
 
-        if apply_reset:
-            goal_object_indices = self.goal_object_indices[env_ids].to(torch.int32)
-            self.gym.set_actor_root_state_tensor_indexed(
+            goal_indices = self.goal_object_indices[env_ids].to(torch.int32)
+            # reset goal task pose
+            self.prev_targets[
+                env_ids,
+                self.num_dofs_with_object : self.num_dofs_with_object + self.num_object_dofs,
+            ] = object_target_dof
+            self.gym.set_dof_position_target_tensor_indexed(
                 self.sim,
-                gymtorch.unwrap_tensor(self.root_state_tensor),
-                gymtorch.unwrap_tensor(goal_object_indices),
+                gymtorch.unwrap_tensor(self.prev_targets),
+                gymtorch.unwrap_tensor(goal_indices),
                 len(env_ids),
             )
+            self.gym.set_dof_state_tensor_indexed(
+                self.sim,
+                gymtorch.unwrap_tensor(self.dof_state),
+                gymtorch.unwrap_tensor(goal_indices),
+                len(env_ids),
+            )
+
+            # zeroes velocities
+            self.root_state_tensor[self.goal_object_indices[env_ids], 7:13] = torch.zeros_like(
+                self.root_state_tensor[self.goal_object_indices[env_ids], 7:13]
+            )
+
+            if apply_reset:
+                goal_object_indices = self.goal_object_indices[env_ids].to(torch.int32)
+                self.gym.set_actor_root_state_tensor_indexed(
+                    self.sim,
+                    gymtorch.unwrap_tensor(self.root_state_tensor),
+                    gymtorch.unwrap_tensor(goal_object_indices),
+                    len(env_ids),
+                )
         self.reset_goal_buf[env_ids] = 0
 
     def get_or_sample_noise_scale(self, param: Union[float, dict]):
@@ -976,17 +983,14 @@ class ArticulateTask(VecTask, IsaacGymCameraBase):
             self.root_state_tensor[self.object_indices[env_ids], 7:13]
         )
 
-        if goal_env_ids is not None:
-            object_indices = [
-                self.object_indices[env_ids],
-                self.goal_object_indices[env_ids],
-                self.goal_object_indices[goal_env_ids],
-            ]
-        else:
-            object_indices = [
-                self.object_indices[env_ids],
-                self.goal_object_indices[env_ids],
-            ]
+        object_indices = [self.object_indices[env_ids]]
+        if self.load_goal_asset:
+            object_indices += [
+                self.goal_object_indices[env_ids]]
+            if goal_env_ids is not None:
+                object_indices += [
+                    self.goal_object_indices[goal_env_ids],  # TODO: remove these if goal asset not added
+                ]
         object_indices = torch.unique(torch.cat(object_indices).to(torch.int32))
         self.gym.set_actor_root_state_tensor_indexed(
             self.sim,
@@ -1045,6 +1049,38 @@ class ArticulateTask(VecTask, IsaacGymCameraBase):
         ret = VecTask.reset(self)
         return ret
 
+    def get_hand_in_contact(self):
+        # Doesn't work in GPU mode
+        # rigid_contacts = self.gym.get_rigid_contacts(self.sim)
+        # rigid_contact_mask = ~((rigid_contacts["body1"] == -1) | (rigid_contacts["body0"] == -1))
+        # hand_in_contact = torch.zeros(self.num_envs, device=self.device)  # boolean vector indicating envs with hand in contact
+        # b0, b1 = rigid_contacts["body0"][rigid_contact_mask], rigid_contacts["body1"][rigid_contact_mask]
+        # for b_0, b_1 in zip(b0, b1):
+        #     # check if body0 is hand or object, and body1 is object or hand using self.object_rb_handles, and self.shadow_hand_rb_handles
+        #     if b_0 in self.object_rb_handles and b_1 in self.shadow_hand_rb_handles:
+        #         hand_in_contact[b_1 // self.env_num_bodies] = 1
+        #     elif b_1 in self.object_rb_handles and b_0 in self.shadow_hand_rb_handles:
+        #         hand_in_contact[b_1 // self.env_num_bodies] = 1
+        #     else:
+        #         breakpoint()
+
+        contact_forces = self.net_cf.view(-1, self.env_num_bodies, 3)
+        hand_in_contact = torch.zeros_like(self.reset_buf)
+        # compute hand_in_contact when contact forces between hand and object are non-zero per env
+        obj_indices, hand_indices = self.object_rb_handles, self.shadow_hand_rb_handles.flatten()
+        contact_envs = (contact_forces[:, obj_indices].any(dim=-1).any(dim=-1)) & (contact_forces[:, hand_indices].any(dim=-1).any(dim=-1))
+        contact_env_ids = contact_envs.nonzero()
+        if len(contact_env_ids) == 0:
+            return hand_in_contact
+        contact_forces = contact_forces[contact_envs]
+        # 1 if any contact force for the object is non-zero and identical (but negative) on any corresponding body from the hand
+        x = contact_forces[:, self.object_rb_handles] # .nonzero()
+        y = -contact_forces[:, self.shadow_hand_rb_handles.flatten()]  #.any(dim=-1).nonzero()
+        # X: N, M, 3, Y: N, K, 3, X == Y: N, M, K
+        x_eq_y = (x[:, None, :, :] == y[:, :, None, :]).all(dim=-1).any(dim=-1).any(dim=-1)
+        hand_in_contact[contact_env_ids[x_eq_y]] = 1 
+        return hand_in_contact
+
     def pre_physics_step(self, actions):
         self.extras = {}
         env_ids = self.reset_buf.nonzero(as_tuple=False).squeeze(-1)
@@ -1066,11 +1102,15 @@ class ArticulateTask(VecTask, IsaacGymCameraBase):
 
         # get rb forces
         force_noise_scale = self.get_or_sample_noise_scale(self.force_scale)
-        if force_noise_scale > 0.0:
+        hand_in_contact = self.get_hand_in_contact()
+        if force_noise_scale > 0.0 and hand_in_contact.any():
             self.rb_forces *= torch.pow(self.force_decay, self.dt / self.force_decay_interval)
 
             # apply new forces
-            force_indices = (torch.rand(self.num_envs, device=self.device) < self.random_force_prob).nonzero()
+            # force_indices = (torch.rand(self.num_envs, device=self.device) < self.random_force_prob).nonzero()
+            # sample env ids from hand_in_contact boolean tensor
+            force_indices = hand_in_contact.nonzero(as_tuple=False)
+            force_indices = force_indices[torch.rand(len(force_indices), device=self.device) < self.random_force_prob]
             self.rb_forces[force_indices, self.object_rb_handles, :] = (
                 torch.randn_like(
                     self.rb_forces[force_indices, self.object_rb_handles, :],
@@ -1268,6 +1308,10 @@ class ArticulateTask(VecTask, IsaacGymCameraBase):
         # draw axes on target object
         self.gym.clear_lines(self.viewer)
         self.gym.refresh_rigid_body_state_tensor(self.sim)
+        # vec3 color red
+        color = gymapi.Vec3(0.85, 0.1, 0.1)
+        for env in map(lambda x: self.envs[x], self.get_hand_in_contact().nonzero()):
+            self.gym.draw_env_rigid_contacts(self.viewer, env, color, 1.0, True)
 
         for i in range(self.num_envs):
             targetx = (
@@ -1333,6 +1377,7 @@ class ArticulateTask(VecTask, IsaacGymCameraBase):
         self.gym.refresh_dof_state_tensor(self.sim)
         self.gym.refresh_actor_root_state_tensor(self.sim)
         self.gym.refresh_rigid_body_state_tensor(self.sim)
+        self.gym.refresh_net_contact_force_tensor(self.sim)
 
         # if self.obs_type == "full_state" or self.asymmetric_obs:
         #     self.gym.refresh_force_sensor_tensor(self.sim)

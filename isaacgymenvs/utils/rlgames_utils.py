@@ -308,7 +308,7 @@ class RLGPUEnv(vecenv.IVecEnv):
             print("Saving trajectory to: ", self.save_traj_path)
             self.traj_buffers_initialized = False
             self.traj_buffers = self.create_traj_buffers()
-            self.done_indices = torch.zeros(num_actors)
+            self.done_indices = torch.zeros(self.max_traj_len, self.num_actors)
         else:
             self.log_trajectory = False
 
@@ -319,26 +319,30 @@ class RLGPUEnv(vecenv.IVecEnv):
 
     def create_traj_buffers(self):
         self.traj_idx = 0
-        
+
         traj_buffers = {}
         if self.traj_buffers_initialized:
             traj_buffers = self.traj_buffers
         if isinstance(self.env.obs_space, gym.spaces.Dict):
-            make_traj_buffer = lambda k: torch.zeros(self.max_traj_len, self.num_actors, *self.env.obs_space[k].shape) 
+            make_traj_buffer = lambda k: torch.zeros(self.max_traj_len, self.num_actors, *self.env.obs_space[k].shape)
             for k in self.env.obs_space.keys():
                 traj_buffers[k] = traj_buffers.get(k, make_traj_buffer(k)).zero_()
             if "actions" not in traj_buffers:
                 traj_buffers["actions"] = torch.zeros(self.max_traj_len, self.num_actors, *self.env.action_space.shape)
         else:
-            traj_buffers["obs"] = traj_buffers.get("obs", torch.zeros(self.max_traj_len, self.num_actors, *self.env.obs_space.shape)).zero_()
-            traj_buffers["actions"] = traj_buffers.get("actions", torch.zeros(self.max_traj_len, self.num_actors, *self.env.action_space.shape)).zero_()
+            traj_buffers["obs"] = traj_buffers.get(
+                "obs", torch.zeros(self.max_traj_len, self.num_actors, *self.env.obs_space.shape)
+            ).zero_()
+            traj_buffers["actions"] = traj_buffers.get(
+                "actions", torch.zeros(self.max_traj_len, self.num_actors, *self.env.action_space.shape)
+            ).zero_()
         for k in self.log_extras:
             traj_buffers[k] = traj_buffers.get(k, torch.zeros(self.max_traj_len, self.num_actors, 1)).zero_()
         self.traj_buffers_initialized = True
         return traj_buffers
 
     def step(self, actions):
-        obs,rew,done,info = self.env.step(actions)
+        obs, rew, done, info = self.env.step(actions)
         if self.log_trajectory and self.num_traj > 0:
             for k in self.traj_buffers:
                 if k in obs["obs"]:
@@ -347,17 +351,18 @@ class RLGPUEnv(vecenv.IVecEnv):
                     self.traj_buffers[k][self.traj_idx] = info[k].view(self.num_actors, 1)
 
             self.traj_buffers["actions"][self.traj_idx] = actions
-            self.traj_idx += 1
             if done.sum() > 0:
-                self.done_indices[done] += 1
-            if (self.traj_idx == self.max_traj_len) or self.done_indices.sum() == self.num_actors:
+                self.done_indices[self.traj_idx, :] = done
+            self.traj_idx += 1
+            if (self.traj_idx == self.max_traj_len) or self.done_indices.sum() >= self.num_actors:
                 self.save_trajectory()
         return obs, rew, done, info
 
     def save_trajectory(self):
-        self.done_indices.zero_()
         traj_buffers = {k: self.traj_buffers[k][: self.traj_idx] for k in self.traj_buffers.keys()}
+        traj_buffers["dones"] = self.done_indices[: self.traj_idx]
         torch.save(traj_buffers, self.save_traj_path)
+        self.done_indices.zero_()
         # del self.traj_buffers
         self.traj_buffers = self.create_traj_buffers()
         self.traj_num += 1
@@ -521,17 +526,16 @@ class ComplexObsRLGPUEnv(vecenv.IVecEnv):
         info["action_space"] = self.env.action_space
 
         for k, v in self.obs_spec.items():
-            info[v['space_name']] = self.gen_obs_space(v['names'], v['concat'])
+            info[v["space_name"]] = self.gen_obs_space(v["names"], v["concat"])
 
         return info
-    
+
     def gen_obs_dict(self, obs_dict, obs_names, concat):
         """Generate the RL Games observations given the observations from the environment."""
         if concat:
             return torch.cat([obs_dict[name] for name in obs_names], dim=1)
         else:
             return {k: obs_dict[k] for k in obs_names}
-            
 
     def gen_obs_space(self, obs_names, concat):
         """Generate the RL Games observation space given the observations from the environment."""
@@ -543,9 +547,7 @@ class ComplexObsRLGPUEnv(vecenv.IVecEnv):
                 dtype=np.float32,
             )
         else:
-            return gym.spaces.Dict(
-                    {k: self.env.observation_space[k] for k in obs_names}
-                )
+            return gym.spaces.Dict({k: self.env.observation_space[k] for k in obs_names})
 
     def set_train_info(self, env_frames, *args_, **kwargs_):
         """
@@ -553,7 +555,7 @@ class ComplexObsRLGPUEnv(vecenv.IVecEnv):
         Most common use case: tell the environment how far along we are in the training process. This is useful
         for implementing curriculums and things such as that.
         """
-        if hasattr(self.env, 'set_train_info'):
+        if hasattr(self.env, "set_train_info"):
             self.env.set_train_info(env_frames, *args_, **kwargs_)
 
     def get_env_state(self):
