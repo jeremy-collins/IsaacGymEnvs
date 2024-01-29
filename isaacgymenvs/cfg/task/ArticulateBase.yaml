@@ -19,6 +19,7 @@ defaults:
     - middle_dist
     - ring_dist
     - joint_limit_penalty
+    - fingertip_reach_params
 
 # used to create the object
 name: ${if:${task.env.enableCameraSensors},ArticulateTaskCamera,ArticulateTask}

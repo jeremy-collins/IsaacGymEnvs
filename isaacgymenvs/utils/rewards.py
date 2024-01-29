@@ -1,7 +1,7 @@
+from isaacgym.torch_utils import quat_conjugate, quat_mul
 import torch
 from hydra.utils import instantiate
 from omegaconf import DictConfig
-from isaacgym.torch_utils import quat_conjugate, quat_mul
 
 action_penalty = lambda act: torch.linalg.norm(act, dim=-1)
 l2_dist = lambda x, y: torch.linalg.norm(x - y, dim=-1)
@@ -21,6 +21,11 @@ def l2_dist_exp_normalized(x, target):
 @torch.jit.script
 def l1_dist_exp(x, y, eps: float = 1e-1):
     return torch.exp(-torch.abs(x - y).sum(dim=-1) / eps)
+
+
+@torch.jit.script
+def l1_dist_inv(x, y, eps: float = 1e-1):
+    return 1.0 / (torch.abs(x - y).sum(dim=-1) + eps)
 
 
 @torch.jit.script
