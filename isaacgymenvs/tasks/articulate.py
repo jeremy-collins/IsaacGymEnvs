@@ -1596,13 +1596,27 @@ class ArticulateTask(VecTask, IsaacGymCameraBase):
         ):
 
             actions_copy = self.actions.clone()
-            
+            progress_buf_copy = self.progress_buf.clone()
+            reset_goal_buf_copy = self.reset_goal_buf.clone()
+            reset_buf_copy = self.reset_buf.clone()
+            rew_buf_copy = self.rew_buf.clone()
+            timeout_buf_copy = self.timeout_buf.clone()
+            successes_copy = self.successes.clone()
+
+            # actions_copy = torch.from_numpy(self.actions.clone().cpu().numpy()).to(self.device)
+            # progress_buf_copy = torch.from_numpy(self.progress_buf.clone().cpu().numpy()).to(self.device)
+            # reset_goal_buf_copy = torch.from_numpy(self.reset_goal_buf.clone().cpu().numpy()).to(self.device)
+            # reset_buf_copy = torch.from_numpy(self.reset_buf.clone().cpu().numpy()).to(self.device)
+            # rew_buf_copy = torch.from_numpy(self.rew_buf.clone().cpu().numpy()).to(self.device)
+            # timeout_buf_copy = torch.from_numpy(self.timeout_buf.clone().cpu().numpy()).to(self.device)
+            # successes_copy = torch.from_numpy(self.successes.clone().cpu().numpy()).to(self.device)
+                
             if "manipulability_reward" in self.reward_params.keys():
                 obs_dict["manipulability"] = self.get_manipulability_fd(f=self.manip_step, obs_dict=obs_dict, obs_keys=["object_pose"], action=self.actions) # action=torch.zeros_like(self.actions))
             elif "manipulability_reward_vectorized" in self.reward_params.keys():
                 obs_dict["manipulability"] = self.get_manipulability_fd_parallel_actions(f=self.manip_step, obs_dict=obs_dict, obs_keys=["object_pose"], action=self.actions) # action=torch.zeros_like(self.actions))
             elif "manipulability_reward_vec" in self.reward_params.keys():
-                obs_dict["manipulability"] = self.get_manipulability_fd_rand_eps_vec(f=self.manip_step, obs_dict=obs_dict, obs_keys=["object_pose"], action=self.actions)
+                obs_dict["manipulability"] = self.get_manipulability_fd_rand_vec(f=self.manip_step, obs_dict=obs_dict, obs_keys=["object_pose"], action=self.actions)
             else:
                 raise NotImplementedError
             
@@ -1610,6 +1624,12 @@ class ArticulateTask(VecTask, IsaacGymCameraBase):
             # print("manipulability", obs_dict["manipulability"])
 
             self.assign_act(actions_copy)
+            self.progress_buf.copy_(progress_buf_copy)
+            self.reset_goal_buf.copy_(reset_goal_buf_copy)
+            self.reset_buf.copy_(reset_buf_copy)
+            self.rew_buf.copy_(rew_buf_copy)
+            self.timeout_buf.copy_(timeout_buf_copy)
+            self.successes.copy_(successes_copy)
 
         self.current_obs_dict = obs_dict
         # for key in self.obs_keys:
@@ -1666,7 +1686,7 @@ class ArticulateTask(VecTask, IsaacGymCameraBase):
             Observations are dict of observations (currently only one member called 'obs')
         """
 
-        # timing stuff
+        # # timing stuff
         # curr_time = time.time()
         # self.dt = curr_time - self.prev_time
         # print("dt", self.dt)
@@ -1675,6 +1695,11 @@ class ArticulateTask(VecTask, IsaacGymCameraBase):
         # randomize actions
         if self.dr_randomizations.get("actions", None):
             actions = self.dr_randomizations["actions"]["noise_lambda"](actions)
+
+
+        # overriding actions TODO: remove
+        # print('OVERRIDING ACTIONS: SETTING TO ZERO')
+        # actions = torch.zeros_like(actions)
 
         action_tensor = torch.clamp(actions, -self.clip_actions, self.clip_actions)
         # apply actions
@@ -1687,8 +1712,8 @@ class ArticulateTask(VecTask, IsaacGymCameraBase):
             self.gym.simulate(self.sim)
 
         # to fix!
-        if self.device == "cpu":
-            self.gym.fetch_results(self.sim, True)
+        # if self.device == "cpu":
+        #     self.gym.fetch_results(self.sim, True)
 
         # compute observations, rewards, resets, ...
         self.post_physics_step()
@@ -1724,21 +1749,45 @@ class ArticulateTask(VecTask, IsaacGymCameraBase):
             self.extras,
         )
 
-    def manip_reset(self, actor_root_state_tensor=None, dof_state_tensor=None, rigid_body_tensor=None):
-        if actor_root_state_tensor is not None:
-            self.gym.set_actor_root_state_tensor(
-                self.sim,
-                gymtorch.unwrap_tensor(actor_root_state_tensor)
-            )
-        if dof_state_tensor is not None:
-            self.gym.set_dof_state_tensor(
-                self.sim,
-                gymtorch.unwrap_tensor(dof_state_tensor)
-            )
-        # self.gym.set_rigid_body_state_tensor( # doesnt work
-        #     self.sim,
-        #     gymtorch.unwrap_tensor(rigid_body_tensor)
-        # )
+    def manip_reset(self, prev_actor_root_state_tensor, prev_dof_state_tensor, prev_rigid_body_tensor):
+        env_indices = torch.arange(self.num_envs, device=self.device, dtype=torch.int32)
+
+        # self.gym.refresh_actor_root_state_tensor(self.sim)
+        # self.gym.refresh_dof_state_tensor(self.sim)
+        # self.gym.refresh_rigid_body_state_tensor(self.sim)
+
+        # result1, result2 = False, False
+
+        # while not result1 and not result2:
+        result1 = self.gym.set_actor_root_state_tensor(
+            self.sim,
+            gymtorch.unwrap_tensor(prev_actor_root_state_tensor)
+        )
+
+        # setting the state tensor manually
+        # self.actor_root_state_tensor = gymtorch.unwrap_tensor(prev_actor_root_state_tensor)
+    
+        result2 = self.gym.set_dof_state_tensor(
+            self.sim,
+            gymtorch.unwrap_tensor(prev_dof_state_tensor)
+        )
+
+        # setting the state tensor manually
+        # self.dof_state_tensor = gymtorch.unwrap_tensor(prev_dof_state_tensor)
+
+        #     self.gym.set_rigid_body_state_tensor( # doesn't work (flex backend only)
+        #         self.sim,
+        #         gymtorch.unwrap_tensor(prev_rigid_body_tensor)
+        #     )
+
+        # setting the state tensor manually
+        # self.rigid_body_tensor = gymtorch.unwrap_tensor(prev_rigid_body_tensor)
+        
+        # step the physics
+        # self.gym.simulate(self.sim)
+        # self.gym.fetch_results(self.sim, True)
+
+        
 
     def manip_step(
         self, actions: torch.Tensor
@@ -1761,7 +1810,7 @@ class ArticulateTask(VecTask, IsaacGymCameraBase):
         # self.pre_physics_step(action_tensor)
         ######### UNROLLING PRE-PHYSICS STEP
 
-        self.extras = {}
+        # self.extras = {}
 
         # handle resets
         # env_ids = self.reset_buf.nonzero(as_tuple=False).squeeze(-1)
@@ -1814,14 +1863,15 @@ class ArticulateTask(VecTask, IsaacGymCameraBase):
 
         # step physics and render each frame
         # for i in range(self.control_freq_inv): # 2 for 60 Hz
-        for i in range(1):
+        manip_substeps = 1
+        for i in range(manip_substeps):
             # if self.force_render:
             #     self.render()
             self.gym.simulate(self.sim)
 
         # to fix!
-        if self.device == "cpu":
-            self.gym.fetch_results(self.sim, True)
+        # if self.device == "cpu":
+        #     self.gym.fetch_results(self.sim, True)
 
         # compute observations, rewards, resets, ...
         # self.post_physics_step(simulate=simulate)
@@ -1925,9 +1975,17 @@ class ArticulateTask(VecTask, IsaacGymCameraBase):
             eps: finite difference step
         
         '''
-        initial_actor_root_state_tensor = gymtorch.wrap_tensor(self.gym.acquire_actor_root_state_tensor(self.sim)).clone()
-        initial_dof_state_tensor = gymtorch.wrap_tensor(self.gym.acquire_dof_state_tensor(self.sim)).clone()
-        initial_rigid_body_state_tensor = gymtorch.wrap_tensor(self.gym.acquire_rigid_body_state_tensor(self.sim)).clone()
+
+        # TODO: torch -> numpy (.cpu().numpy()) -> torch -> isaacgym. don't call wrap_tensor, use self.actor_root_state etc
+        # These tensors are updated in compute_observations(), so they don't need updating (refreshing) beforehand
+        
+        # initial_actor_root_state_tensor = torch.from_numpy(gymtorch.wrap_tensor(self.actor_root_state_tensor).cpu().numpy()).to(self.device)
+        # initial_dof_state_tensor = torch.from_numpy(gymtorch.wrap_tensor(self.dof_state_tensor).cpu().numpy()).to(self.device)
+        # initial_rigid_body_state_tensor = torch.from_numpy(gymtorch.wrap_tensor(self.rigid_body_tensor).cpu().numpy()).to(self.device)
+
+        actor_root_state_buffer = gymtorch.wrap_tensor(self.actor_root_state_tensor).clone()
+        dof_state_buffer = gymtorch.wrap_tensor(self.dof_state_tensor).clone()
+        rigid_body_state_buffer = gymtorch.wrap_tensor(self.rigid_body_tensor).clone()
 
         obs = self.obs_dict_to_tensor(obs_dict, obs_keys)
         bs = action.shape[0]
@@ -1950,12 +2008,12 @@ class ArticulateTask(VecTask, IsaacGymCameraBase):
             # doutput/dinput
             manipulability_fd[:, :, i] = (next_state_1 - next_state_2) / (2 * eps) # each col = doutput[:]/dinput[i]
 
-            self.manip_reset(initial_actor_root_state_tensor, initial_dof_state_tensor, initial_rigid_body_state_tensor)
+            self.manip_reset(actor_root_state_buffer, dof_state_buffer, rigid_body_state_buffer)
 
             # garbage collection
-            del initial_actor_root_state_tensor
-            del initial_dof_state_tensor
-            del initial_rigid_body_state_tensor
+            del actor_root_state_buffer
+            del dof_state_buffer
+            del rigid_body_state_buffer
 
         return manipulability_fd
 
@@ -1969,10 +2027,16 @@ class ArticulateTask(VecTask, IsaacGymCameraBase):
             action: action
             eps: finite difference step
         '''
+        
+        # TODO: torch -> numpy (.cpu().numpy()) -> torch -> isaacgym. don't call wrap_tensor, use self.actor_root_state etc
+        # These tensors are updated in compute_observations(), so they don't need updating beforehand
+        # initial_actor_root_state_tensor = torch.from_numpy(gymtorch.wrap_tensor(self.actor_root_state_tensor).cpu().numpy()).to(self.device)
+        # initial_dof_state_tensor = torch.from_numpy(gymtorch.wrap_tensor(self.dof_state_tensor).cpu().numpy()).to(self.device)
+        # initial_rigid_body_state_tensor = torch.from_numpy(gymtorch.wrap_tensor(self.rigid_body_tensor).cpu().numpy()).to(self.device)
 
-        initial_actor_root_state_tensor = gymtorch.wrap_tensor(self.gym.acquire_actor_root_state_tensor(self.sim)).clone()
-        initial_dof_state_tensor = gymtorch.wrap_tensor(self.gym.acquire_dof_state_tensor(self.sim)).clone()
-        initial_rigid_body_state_tensor = gymtorch.wrap_tensor(self.gym.acquire_rigid_body_state_tensor(self.sim)).clone()
+        actor_root_state_buffer = gymtorch.wrap_tensor(self.actor_root_state_tensor).clone()
+        dof_state_buffer = gymtorch.wrap_tensor(self.dof_state_tensor).clone()
+        rigid_body_state_buffer = gymtorch.wrap_tensor(self.rigid_body_tensor).clone()
 
         obs = self.obs_dict_to_tensor(obs_dict, obs_keys)
         bs = action.shape[0]
@@ -1980,11 +2044,24 @@ class ArticulateTask(VecTask, IsaacGymCameraBase):
         output_dim = obs.shape[1]
         # manipulability_fd = torch.empty((bs, output_dim, input_dim), dtype=torch.float64, device=self.device) # TODO: allocate outside of this function
 
-        assert bs % (input_dim) == 0, "batch size must be divisible by input dim for vectorized finite difference manipulability calculation"
+        assert bs % (input_dim) == 0, "the number of environments must be divisible by input dim for vectorized finite difference manipulability calculation"
         
         num_manips = bs // input_dim
 
-        # TODO: randomize num_manips states in groups of size input_dim, with each group having the same state
+        # instead of taking the first num_manips rows, take every input_dim rows
+        actor_root_state_tensor_rows = actor_root_state_buffer.view(bs, 3, 13)[0::input_dim] # (num_manips, 3, 13)
+        initial_actor_root_state_tensor_copied_rows = actor_root_state_tensor_rows.repeat_interleave(input_dim, dim=0) # (num_manips*input_dim, 3, 13)
+        initial_actor_root_state_tensor_copied = initial_actor_root_state_tensor_copied_rows.view(-1, 13) # (num_manips*input_dim*3, 13)
+
+        dof_state_tensor_rows = dof_state_buffer.view(bs, 24, 2)[0::input_dim] # (num_manips, 24, 2)
+        initial_dof_state_tensor_copied_rows = dof_state_tensor_rows.repeat_interleave(input_dim, dim=0) # (num_manips*input_dim, 24, 2)
+        initial_dof_state_tensor_copied = initial_dof_state_tensor_copied_rows.view(-1, 2) # (num_manips*input_dim*24, 2)
+
+        # self.rigid_body_tensor = gymtorch.wrap_tensor(self.rigid_body_tensor).clone().view(bs, 37, 13)[0].repeat(bs, 1, 1).view(-1, 13)
+        # rigid_body_tensor_row = initial_rigid_body_state_tensor.view(bs, 37, 13)[0]
+        # print("rigid_body_tensor_row shape", rigid_body_tensor_row.shape)
+        # initial_rigid_body_state_tensor_copied = rigid_body_tensor_row.repeat(bs, 1, 1).view(-1, 13)
+        # print("copied rigid_body_tensor shape", self.rigid_body_tensor.shape)
 
         eps_parallel = torch.eye(input_dim, device=self.device).repeat(num_manips, 1) * eps
 
@@ -2003,16 +2080,17 @@ class ArticulateTask(VecTask, IsaacGymCameraBase):
         # doutput/dinput
         manipulability_fd = (next_state_1 - next_state_2) / (2 * eps) # (num_manips*input_dim, output_dim)
 
-        self.manip_reset(initial_actor_root_state_tensor, initial_dof_state_tensor, initial_rigid_body_state_tensor)
+        # self.manip_reset(actor_root_state_buffer, dof_state_buffer, rigid_body_state_buffer)
+        self.manip_reset(initial_actor_root_state_tensor_copied, initial_dof_state_tensor_copied, rigid_body_state_buffer)
 
         # garbage collection
-        del initial_actor_root_state_tensor
-        del initial_dof_state_tensor
-        del initial_rigid_body_state_tensor
+        del actor_root_state_buffer
+        del dof_state_buffer
+        del rigid_body_state_buffer
 
         return manipulability_fd
 
-    def get_manipulability_fd_rand_eps_vec(self, f, obs_dict, obs_keys, action, eps=1e-2):
+    def get_manipulability_fd_rand_vec(self, f, obs_dict, obs_keys, action, eps=1e-2):
         '''
         Calculates finite difference manipulability by randomly perturbing actions separately across parallel environments.
 
@@ -2023,12 +2101,15 @@ class ArticulateTask(VecTask, IsaacGymCameraBase):
             eps: finite difference step
         '''
 
-        try:
-            initial_actor_root_state_tensor = gymtorch.wrap_tensor(self.gym.acquire_actor_root_state_tensor(self.sim))
-            initial_dof_state_tensor = gymtorch.wrap_tensor(self.gym.acquire_dof_state_tensor(self.sim))
-            initial_rigid_body_state_tensor = gymtorch.wrap_tensor(self.gym.acquire_rigid_body_state_tensor(self.sim))
-        except:
-            raise NotImplementedError("unable to acquire state tensors")
+        # TODO: torch -> numpy (.cpu().numpy()) -> torch -> isaacgym. don't call wrap_tensor, use self.actor_root_state etc
+        # These tensors are updated in compute_observations(), so they don't need updating beforehand
+        # initial_actor_root_state_tensor = torch.from_numpy(gymtorch.wrap_tensor(self.actor_root_state_tensor).cpu().numpy()).to(self.device)
+        # initial_dof_state_tensor = torch.from_numpy(gymtorch.wrap_tensor(self.dof_state_tensor).cpu().numpy()).to(self.device)
+        # initial_rigid_body_state_tensor = torch.from_numpy(gymtorch.wrap_tensor(self.rigid_body_tensor).cpu().numpy()).to(self.device)
+
+        actor_root_state_buffer = gymtorch.wrap_tensor(self.actor_root_state_tensor).clone()
+        dof_state_buffer = gymtorch.wrap_tensor(self.dof_state_tensor).clone()
+        rigid_body_state_buffer = gymtorch.wrap_tensor(self.rigid_body_tensor).clone()
 
         obs = self.obs_dict_to_tensor(obs_dict, obs_keys)
         bs = action.shape[0]
@@ -2059,12 +2140,12 @@ class ArticulateTask(VecTask, IsaacGymCameraBase):
         # doutput/dinput
         manipulability_fd = (next_state_1 - next_state_2) / (2 * eps) # (num_manips*input_dim, output_dim)
 
-        self.manip_reset(initial_actor_root_state_tensor, initial_dof_state_tensor, initial_rigid_body_state_tensor)
-        
+        self.manip_reset(actor_root_state_buffer, dof_state_buffer, rigid_body_state_buffer)
+
         # garbage collection
-        del initial_actor_root_state_tensor
-        del initial_dof_state_tensor
-        del initial_rigid_body_state_tensor
+        del actor_root_state_buffer
+        del dof_state_buffer
+        del rigid_body_state_buffer
 
         return manipulability_fd
 

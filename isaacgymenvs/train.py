@@ -268,4 +268,6 @@ def launch_rlg_hydra(cfg: DictConfig):
 
 
 if __name__ == "__main__":
+    # from hanging_threads import start_monitoring
+    # start_monitoring(seconds_frozen=3, test_interval=100)
     launch_rlg_hydra()
