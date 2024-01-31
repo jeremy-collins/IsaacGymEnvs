@@ -89,7 +89,7 @@ def manipulability_frobenius_norm_vectorized(manipulability, object_pose, goal_p
     norms = torch.linalg.norm(manipulability_grouped, dim=(-2, -1), ord='fro') # (num_manips)
     
     # each env corresponding to the same manipulability matrix gets the same reward
-    rewards = norms.repeat_interleave(input_dim) # bs = num_manips*input_dim
+    rewards = norms.repeat_interleave(input_dim * 2) # bs = num_manips*input_dim*2
     return rewards
 
 @torch.jit.script
