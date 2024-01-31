@@ -259,7 +259,7 @@ def launch_rlg_hydra(cfg: DictConfig):
     if not cfg.test:
         experiment_dir = os.path.join(
             "runs",
-            cfg.train.params.config.name + "_{date:%d-%H-%M-%S}".format(date=datetime.now()),
+            cfg.train.params.config.name + f"_{time_str}",
         )
 
         os.makedirs(experiment_dir, exist_ok=True)
