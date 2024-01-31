@@ -107,7 +107,8 @@ def launch_rlg_hydra(cfg: DictConfig):
     from isaacgymenvs.learning import actor_network_builder
     import isaacgymenvs
 
-    time_str = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+    time_now = datetime.now()
+    time_str = time_now.strftime("%Y-%m-%d_%H-%M-%S")
     run_name = f"{cfg.wandb_name}_{time_str}"
 
     # ensure checkpoints can be specified as relative paths
@@ -258,8 +259,7 @@ def launch_rlg_hydra(cfg: DictConfig):
     # dump config dict
     if not cfg.test:
         experiment_dir = os.path.join(
-            "runs",
-            cfg.train.params.config.name + f"_{time_str}",
+            "runs", cfg.train.params.config.name + "_{date:%d-%H-%M-%S}".format(date=time_now)
         )
 
         os.makedirs(experiment_dir, exist_ok=True)
