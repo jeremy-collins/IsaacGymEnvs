@@ -17,6 +17,9 @@ from .base.vec_task import VecTask
 import time
 import wandb
 
+from utils.manipulability import *
+import copy
+
 SUPPORTED_PARTNET_OBJECTS = [
     "dispenser",
     "spray_bottle",
@@ -339,7 +342,7 @@ class ArticulateTask(VecTask, IsaacGymCameraBase):
         if self.num_objects > 1:
             assert (
                 self.num_envs % self.num_objects == 0
-            ), "Number of objects should ebvenly divide number of envs!"
+            ), "Number of objects should evenly divide number of envs!"
             # need to do this since number of object bodies varies per object instance
             self.rigid_body_states = gymtorch.wrap_tensor(self.rigid_body_tensor).view(
                 self.num_envs // self.num_objects, -1, 13
@@ -422,6 +425,8 @@ class ArticulateTask(VecTask, IsaacGymCameraBase):
             * torch.rand(self.num_envs, device=self.device)
             + torch.log(self.force_prob_range[1])
         )
+    
+        self.prev_bufs_manip = None
 
     def create_sim(self):
         self.dt = self.sim_params.dt
@@ -992,6 +997,7 @@ class ArticulateTask(VecTask, IsaacGymCameraBase):
             gymtorch.unwrap_tensor(goal_indices),
             len(env_ids),
         )
+        print("set_dof_state_tensor_indexed in reset_target_pose")
         self.gym.set_dof_state_tensor_indexed(
             self.sim,
             gymtorch.unwrap_tensor(self.dof_state),
@@ -1008,6 +1014,7 @@ class ArticulateTask(VecTask, IsaacGymCameraBase):
 
         if apply_reset:
             goal_object_indices = self.goal_object_indices[env_ids].to(torch.int32)
+            print("set_actor_root_state_tensor in reset_target_pose")
             self.gym.set_actor_root_state_tensor_indexed(
                 self.sim,
                 gymtorch.unwrap_tensor(self.root_state_tensor),
@@ -1091,6 +1098,7 @@ class ArticulateTask(VecTask, IsaacGymCameraBase):
                 self.goal_object_indices[env_ids],
             ]
         object_indices = torch.unique(torch.cat(object_indices).to(torch.int32))
+        print("set_actor_root_state_tensor_indexed in reset_idx")
         self.gym.set_actor_root_state_tensor_indexed(
             self.sim,
             gymtorch.unwrap_tensor(self.root_state_tensor),
@@ -1134,6 +1142,7 @@ class ArticulateTask(VecTask, IsaacGymCameraBase):
             len(env_ids),
         )
 
+        print("set_dof_state_tensor in reset_idx")
         self.gym.set_dof_state_tensor_indexed(
             self.sim,
             gymtorch.unwrap_tensor(self.dof_state),
@@ -1166,6 +1175,8 @@ class ArticulateTask(VecTask, IsaacGymCameraBase):
 
         if len(env_ids) > 0:
             self.reset_idx(env_ids, goal_env_ids)
+        elif self.prev_bufs_manip is not None:
+            manip_reset(self.gym, self.sim, *self.prev_bufs_manip)
 
         self.actions = actions.clone().to(self.device)
         self.assign_act(self.actions)
@@ -1229,6 +1240,7 @@ class ArticulateTask(VecTask, IsaacGymCameraBase):
         self.prev_targets[:, self.actuated_dof_indices] = self.cur_targets[
             :, self.actuated_dof_indices
         ]
+        print("set_dof_position_target_tensor in assign_act")
         self.gym.set_dof_position_target_tensor(
             self.sim, gymtorch.unwrap_tensor(self.cur_targets)
         )
@@ -1450,6 +1462,7 @@ class ArticulateTask(VecTask, IsaacGymCameraBase):
             )
 
     def compute_observations(self, skip_manipulability=False):
+        print("refreshing (compute_observations in post_physics_step)")
         self.gym.refresh_dof_state_tensor(self.sim)
         self.gym.refresh_actor_root_state_tensor(self.sim)
         self.gym.refresh_rigid_body_state_tensor(self.sim)
@@ -1583,54 +1596,90 @@ class ArticulateTask(VecTask, IsaacGymCameraBase):
         obs_dict["object_instance_one_hot"] = object_instance_one_hot.to(self.device)
         obs_dict["object_type_one_hot"] = object_type_one_hot.to(self.device)
 
-        # print("self.reward_params", self.reward_params)
-        # if not skip_manipulability and (
-        #     "manipulability_reward" in self.reward_params.keys()
-        #     or "manipulability_reward_goal_cond" in self.reward_params.keys()
-        #     or "manipulability_reward_vectorized" in self.reward_params.keys()
-        # ):
-
-        # just checking for the word "manipulability" in the reward_params keys
+        # checking for the word "manipulability" in the reward_params keys
         if not skip_manipulability and any(
             ["manipulability" in key for key in self.reward_params.keys()]
         ):
+            # creating copies of every variable manipulability interacts with
+            manip_args = {
+                "gym": self.gym,
+                "sim": self.sim,
+                "device": str(self.device),
+                "clip_actions": float(self.clip_actions),
+                "num_envs": int(self.num_envs),
+                "shadow_hand_dof_pos": self.shadow_hand_dof_pos.clone(),
+                "shadow_hand_dof_vel": self.shadow_hand_dof_vel.clone(),
+                "shadow_hand_dof_lower_limits": self.shadow_hand_dof_lower_limits.clone(),
+                "shadow_hand_dof_upper_limits": self.shadow_hand_dof_upper_limits.clone(),
+                "shadow_hand_dof_speed_scale": float(self.shadow_hand_dof_speed_scale),
+                "object_indices": self.object_indices.clone(),
+                "hand_indices": self.hand_indices.clone(),
+                "palm_index": int(self.palm_index),
+                "fingertip_indices": self.fingertip_indices.clone(),
+                "root_state_tensor": self.root_state_tensor.clone(),
+                "dof_state_tensor": self.dof_state.clone(),
+                "rigid_body_states": self.rigid_body_states.clone(),
+                "object_dof_pos": self.object_dof_pos.clone(),
+                "object_dof_lower_limits": self.object_dof_lower_limits.clone(),
+                "object_dof_upper_limits": self.object_dof_upper_limits.clone(),
+                "object_target_dof_pos": self.object_target_dof_pos.clone(),
+                "scale_dof_pos": bool(self.scale_dof_pos),
+                "object_target_dof_idx": list(self.object_target_dof_idx),
+                "vel_obs_scale": float(self.vel_obs_scale),
+                "num_objects": int(self.num_objects),
+                "env_num_bodies": int(self.env_num_bodies),
+                "goal_states": self.goal_states.clone(),
+                "hand_init_pos": self.hand_init_pos.clone(),
+                "hand_init_quat": self.hand_init_quat.clone(),
+                "actuated_dof_indices": self.actuated_dof_indices.clone(),
+                "prev_targets": self.prev_targets.clone(),
+                "obs_keys": list(self.obs_keys),
+                "obs_dict": dict(obs_dict),
+                "obs_buf": self.obs_buf.clone(),
+                "current_obs_dict": dict(obs_dict),
+                "max_obj_instances": int(self.max_obj_instances),
+                "object_type": list(self.object_type),
+                "env_instance_order": list(self.env_instance_order),
+                "SUPPORTED_PARTNET_OBJECTS": list(SUPPORTED_PARTNET_OBJECTS),
+                "use_relative_control": bool(self.use_relative_control),
+                "actuated_dof_indices": self.actuated_dof_indices.clone(),
+                "dt": float(self.dt),
+                "cur_targets": self.cur_targets.clone(),
+                "object_instance": dict(self.object_instance),
+                "asset_files_dict": dict(self.asset_files_dict),
+                "num_obs_dict": dict(self.num_obs_dict),
+                "obs_type": str(self.obs_type),
 
-            actions_copy = self.actions.clone()
-            progress_buf_copy = self.progress_buf.clone()
-            reset_goal_buf_copy = self.reset_goal_buf.clone()
-            reset_buf_copy = self.reset_buf.clone()
-            rew_buf_copy = self.rew_buf.clone()
-            timeout_buf_copy = self.timeout_buf.clone()
-            successes_copy = self.successes.clone()
-            obs_buf_copy = self.obs_buf.clone()
+                "obs_keys_manip": ["object_pose"],
+                "f": manip_step,
+                "actions": self.actions.clone(),
+                "act_moving_average": float(self.act_moving_average),
+                "eps": 1e-2,
+            }
+
+            # for key in manip_args.keys():
+            #     print(key, type(manip_args[key]))
                 
             if "manipulability_reward" in self.reward_params.keys():
-                obs_dict["manipulability"] = self.get_manipulability_fd(f=self.manip_step, obs_dict=obs_dict, obs_keys=["object_pose"], action=self.actions) # action=torch.zeros_like(self.actions))
+                obs_dict["manipulability"], self.prev_bufs_manip = get_manipulability_fd(manip_args)
             elif "manipulability_reward_vectorized" in self.reward_params.keys():
-                obs_dict["manipulability"] = self.get_manipulability_fd_parallel_actions(f=self.manip_step, obs_dict=obs_dict, obs_keys=["object_pose"], action=self.actions) # action=torch.zeros_like(self.actions))
+                obs_dict["manipulability"], self.prev_bufs_manip = get_manipulability_fd_parallel_actions(manip_args)
             elif "manipulability_reward_vec" in self.reward_params.keys():
-                obs_dict["manipulability"] = self.get_manipulability_fd_rand_vec(f=self.manip_step, obs_dict=obs_dict, obs_keys=["object_pose"], action=self.actions)
+                obs_dict["manipulability"], self.prev_bufs_manip = get_manipulability_fd_rand_vec(manip_args)
             else:
                 raise NotImplementedError
             
-            # obs_dict["manipulability"] = torch.zeros((self.num_envs, 1, 1), device=self.device) # placeholder
-            # print("manipulability", obs_dict["manipulability"])
-
-            self.assign_act(actions_copy)
-            self.progress_buf.copy_(progress_buf_copy)
-            self.reset_goal_buf.copy_(reset_goal_buf_copy)
-            self.reset_buf.copy_(reset_buf_copy)
-            self.rew_buf.copy_(rew_buf_copy)
-            self.timeout_buf.copy_(timeout_buf_copy)
-            self.successes.copy_(successes_copy)
-            self.obs_buf.copy_(obs_buf_copy)
+            # checking that self.prev_bufs_manip matches what we copied in manip_args
+            assert torch.allclose(self.prev_bufs_manip[0], manip_args["root_state_tensor"]), "root_state_tensor is wrong!"
+            assert torch.allclose(self.prev_bufs_manip[1], manip_args["dof_state_tensor"]), "dof_state is wrong!"
+            assert torch.allclose(self.prev_bufs_manip[2], manip_args["rigid_body_states"]), "rigid_body_states is wrong!"
 
         self.current_obs_dict = obs_dict
         # for key in self.obs_keys:
         #     if key in obs_dict:
         #         self.obs_dict[key][:] = obs_dict[key]
 
-        obs_tensor = self.obs_dict_to_tensor(obs_dict, self.obs_keys)
+        obs_tensor = obs_dict_to_tensor(obs_dict, self.obs_keys, self.num_envs)
         # check obs shape
         assert (
             obs_tensor.shape[-1] == self.num_obs_dict[self.obs_type]
@@ -1639,169 +1688,6 @@ class ArticulateTask(VecTask, IsaacGymCameraBase):
         if self.use_image_obs:
             IsaacGymCameraBase.compute_observations(self)
 
-    def compute_observations_manip(self):
-        self.gym.refresh_dof_state_tensor(self.sim)
-        self.gym.refresh_actor_root_state_tensor(self.sim)
-        self.gym.refresh_rigid_body_state_tensor(self.sim)
-
-        # if self.obs_type == "full_state" or self.asymmetric_obs:
-        #     self.gym.refresh_force_sensor_tensor(self.sim)
-        #     self.gym.refresh_dof_force_tensor(self.sim)
-
-        if self.num_objects > 1:
-            palm_index = [self.palm_index + b for b in self.env_num_bodies]
-        else:
-            palm_index = self.palm_index
-        obs_dict = {}
-        obs_dict["hand_joint_pos"] = unscale(
-            self.shadow_hand_dof_pos,
-            self.shadow_hand_dof_lower_limits,
-            self.shadow_hand_dof_upper_limits,
-        )
-        obs_dict["hand_joint_vel"] = self.vel_obs_scale * self.shadow_hand_dof_vel
-        obs_dict["object_pose"] = self.root_state_tensor[self.object_indices, 0:7]
-        obs_dict["object_pos"] = self.root_state_tensor[self.object_indices, 0:3]
-        obs_dict["object_quat"] = self.root_state_tensor[self.object_indices, 3:7]
-        obs_dict["goal_pose"] = self.goal_states[:, 0:7]
-        obs_dict["goal_pos"] = self.goal_states[:, 0:3]
-        obs_dict["goal_quat"] = self.goal_states[:, 3:7]
-        obs_dict["object_lin_vel"] = self.root_state_tensor[self.object_indices, 7:10]
-        obs_dict["object_ang_vel"] = (
-            self.vel_obs_scale * self.root_state_tensor[self.object_indices, 10:13]
-        )
-
-        obs_dict["object_dof_pos"] = self.object_dof_pos.view(self.num_envs, -1)
-        if self.scale_dof_pos:
-            obs_dict["object_dof_pos"] = unscale(
-                obs_dict["object_dof_pos"].view(
-                    self.num_envs // self.num_objects, self.num_objects, -1
-                ),
-                self.object_dof_lower_limits,
-                self.object_dof_upper_limits,
-            ).view(self.num_envs, -1)
-
-        if isinstance(self.object_target_dof_pos, torch.Tensor):
-            object_target_dof = (
-                self.object_target_dof_pos.unsqueeze(0)
-                .repeat(self.num_envs // self.num_objects, 1)
-                .unsqueeze(-1)
-            )
-        else:
-            object_target_dof = self.object_target_dof_pos * torch.ones_like(
-                obs_dict["object_dof_pos"]
-            )
-
-        obs_dict["goal_dof_pos"] = object_target_dof.view(self.num_envs, -1)
-        if self.scale_dof_pos:
-            obs_dict["goal_dof_pos"] = unscale(
-                obs_dict["goal_dof_pos"].view(
-                    self.num_envs // self.num_objects, self.num_objects, -1
-                ),
-                self.object_dof_lower_limits,
-                self.object_dof_upper_limits,
-            ).view(self.num_envs, -1)
-
-        obs_dict["hand_init_pos"] = self.hand_init_pos
-        obs_dict["hand_init_quat"] = self.hand_init_quat
-        obs_dict["hand_pos"] = self.root_state_tensor[self.hand_indices + 1, 0:3]
-        obs_dict["hand_quat"] = self.root_state_tensor[self.hand_indices + 1, 3:7]
-        # open and append hand_pos and hand_quat to a npz file for debugging
-        # if os.path.exists("hand_pos_quat.npz"):
-        #     d = np.load("hand_pos_quat.npz")
-        #     hand_pos = np.concatenate([d['hand_pos'], obs_dict["hand_pos"].cpu().numpy()])
-        #     hand_quat = np.concatenate([d['hand_quat'], obs_dict["hand_quat"].cpu().numpy()])
-        # else:
-        #     hand_pos = obs_dict["hand_pos"].cpu().numpy()[:1]
-        #     hand_quat = obs_dict["hand_quat"].cpu().numpy()[:1]
-        # np.savez("hand_pos_quat.npz", hand_pos=hand_pos, hand_quat=hand_quat)
-
-        obs_dict["hand_palm_pos"] = self.rigid_body_states[:, palm_index, 0:3].view(
-            self.num_envs, -1
-        )
-        obs_dict["hand_palm_quat"] = self.rigid_body_states[:, palm_index, 3:7].view(
-            self.num_envs, -1
-        )
-        obs_dict["hand_palm_vel"] = self.vel_obs_scale * self.rigid_body_states[
-            :, palm_index, 7:10
-        ].view(self.num_envs, -1)
-        obs_dict["fingertip_pose_vel"] = self.rigid_body_states[
-            :, self.fingertip_indices
-        ][:, :, 0:10].view(
-            self.num_envs, -1, 10
-        )  # n_envs x 4 x 10
-        obs_dict["fingertip_pos"] = obs_dict["fingertip_pose_vel"][:, :, 0:3]
-        obs_dict["fingertip_rot"] = obs_dict["fingertip_pose_vel"][:, :, 3:7]
-        obs_dict["fingertip_vel"] = obs_dict["fingertip_pose_vel"][:, :, 7:10]
-        obs_dict["actions"] = self.actions
-        obs_dict["hand_joint_pos_err"] = (
-            self.prev_targets[:, self.actuated_dof_indices] - obs_dict["hand_joint_pos"]
-        )
-
-        obs_dict["object_type"] = (
-            to_torch(
-                np.concatenate(
-                    [
-                        [
-                            SUPPORTED_PARTNET_OBJECTS.index(otype)
-                            for _ in self.object_instance.get(
-                                otype, self.asset_files_dict[otype]
-                            )
-                        ]
-                        for otype in self.object_type
-                    ]
-                ),
-                device=self.device,
-            )
-            .repeat(self.num_envs // self.num_objects)
-            .unsqueeze(-1)
-        )
-
-        obs_dict["object_instance"] = (
-            to_torch(self.env_instance_order, device=self.device)
-            .repeat(self.num_envs // self.num_objects)
-            .unsqueeze(-1)
-        )
-
-        object_instance_one_hot = torch.nn.functional.one_hot(
-            obs_dict["object_instance"].to(torch.int64),
-            num_classes=self.max_obj_instances,
-        ).squeeze(-2)
-        object_type_one_hot = torch.nn.functional.one_hot(
-            obs_dict["object_type"].to(torch.int64),
-            num_classes=len(SUPPORTED_PARTNET_OBJECTS),
-        ).squeeze(-2)
-        obs_dict["object_instance_one_hot"] = object_instance_one_hot.to(self.device)
-        obs_dict["object_type_one_hot"] = object_type_one_hot.to(self.device)
-
-        # print("self.reward_params", self.reward_params)
-        # if not skip_manipulability and (
-        #     "manipulability_reward" in self.reward_params.keys()
-        #     or "manipulability_reward_goal_cond" in self.reward_params.keys()
-        #     or "manipulability_reward_vectorized" in self.reward_params.keys()
-        # ):
-
-     
-        self.current_obs_dict = obs_dict
-        # for key in self.obs_keys:
-        #     if key in obs_dict:
-        #         self.obs_dict[key][:] = obs_dict[key]
-
-        obs_tensor = self.obs_dict_to_tensor(obs_dict, self.obs_keys)
-        # check obs shape
-        assert (
-            obs_tensor.shape[-1] == self.num_obs_dict[self.obs_type]
-        ), f"Obs shape {obs_tensor.shape} not correct!"
-        self.obs_buf[:] = obs_tensor
-        if self.use_image_obs:
-            IsaacGymCameraBase.compute_observations(self)
-
-
-    def obs_dict_to_tensor(self, obs_dict, obs_keys):
-        obs = []
-        for key in obs_keys:
-            obs.append(obs_dict[key].view(self.num_envs, -1))
-        obs_tensor = torch.cat(obs, dim=-1)
-        return obs_tensor
 
     def get_default_camera_specs(self):
         camera_spec = self.cfg["env"].get("camera_spec", dict(width=64, height=64))
@@ -1860,6 +1746,7 @@ class ArticulateTask(VecTask, IsaacGymCameraBase):
         for i in range(self.control_freq_inv):
             if self.force_render:
                 self.render()
+            print("simulating (step)")
             self.gym.simulate(self.sim)
 
         # to fix!
@@ -1899,600 +1786,6 @@ class ArticulateTask(VecTask, IsaacGymCameraBase):
             self.reset_buf.to(self.rl_device),
             self.extras,
         )
-
-    def manip_reset(self, prev_actor_root_state_tensor, prev_dof_state_tensor, prev_rigid_body_tensor):
-        env_indices = torch.arange(self.num_envs, device=self.device, dtype=torch.int32)
-
-        # self.gym.refresh_actor_root_state_tensor(self.sim)
-        # self.gym.refresh_dof_state_tensor(self.sim)
-        # self.gym.refresh_rigid_body_state_tensor(self.sim)
-
-        # result1, result2 = False, False
-
-        # while not result1 and not result2:
-        result1 = self.gym.set_actor_root_state_tensor(
-            self.sim,
-            gymtorch.unwrap_tensor(prev_actor_root_state_tensor)
-        )
-
-        # setting the state tensor manually
-        # self.actor_root_state_tensor = gymtorch.unwrap_tensor(prev_actor_root_state_tensor)
-    
-        result2 = self.gym.set_dof_state_tensor(
-            self.sim,
-            gymtorch.unwrap_tensor(prev_dof_state_tensor)
-        )
-
-        # setting the state tensor manually
-        # self.dof_state_tensor = gymtorch.unwrap_tensor(prev_dof_state_tensor)
-
-        #     self.gym.set_rigid_body_state_tensor( # doesn't work (flex backend only)
-        #         self.sim,
-        #         gymtorch.unwrap_tensor(prev_rigid_body_tensor)
-        #     )
-
-        # setting the state tensor manually
-        # self.rigid_body_tensor = gymtorch.unwrap_tensor(prev_rigid_body_tensor)
-        
-        # step the physics
-        # self.gym.simulate(self.sim)
-        # self.gym.fetch_results(self.sim, True)
-
-        
-
-    def manip_step(
-        self, actions: torch.Tensor
-    ) -> Tuple[Dict[str, torch.Tensor], torch.Tensor, torch.Tensor, Dict[str, Any]]:
-        """Unrolled step function for debugging manipulability function.
-
-        Args:
-            actions: actions to apply
-        Returns:
-            Observations, rewards, resets, info
-            Observations are dict of observations
-        """
-
-        # # randomize actions
-        # if self.dr_randomizations.get("actions", None):
-        #     actions = self.dr_randomizations["actions"]["noise_lambda"](actions)
-
-        action_tensor = torch.clamp(actions, -self.clip_actions, self.clip_actions)
-        # apply actions
-        # self.pre_physics_step(action_tensor)
-        ######### UNROLLING PRE-PHYSICS STEP
-
-        # self.extras = {}
-
-        # handle resets
-        # env_ids = self.reset_buf.nonzero(as_tuple=False).squeeze(-1)
-        # goal_env_ids = self.reset_goal_buf.nonzero(as_tuple=False).squeeze(-1)
-
-        # if only goals need reset, then call set API
-        # if len(goal_env_ids) > 0 and len(env_ids) == 0:
-        #     self.reset_target_pose(goal_env_ids, apply_reset=True)
-
-        # if goals need reset in addition to other envs, call set API in reset()
-        # elif len(goal_env_ids) > 0:
-        #     self.reset_target_pose(goal_env_ids)
-
-        # if len(env_ids) > 0:
-        #     self.reset_idx(env_ids, goal_env_ids)
-
-        # modify self.cur_targets and self.prev_targets
-        self.actions = action_tensor.clone().to(self.device)
-        self.assign_act(self.actions)
-
-        # adding random force perturbations
-        # # get rigid body forces
-        # force_noise_scale = self.get_or_sample_noise_scale(self.force_scale)
-        # if force_noise_scale > 0.0:
-        #     self.rb_forces *= torch.pow(
-        #         self.force_decay, self.dt / self.force_decay_interval
-        #     )
-
-        #     # apply new forces
-        #     force_indices = (
-        #         torch.rand(self.num_envs, device=self.device) < self.random_force_prob
-        #     ).nonzero()
-        #     self.rb_forces[force_indices, self.object_rb_handles, :] = (
-        #         torch.randn_like(
-        #             self.rb_forces[force_indices, self.object_rb_handles, :],
-        #             device=self.device,
-        #         )
-        #         * self.object_rb_masses.unsqueeze(-1).unsqueeze(0)
-        #         * force_noise_scale
-        #     )
-
-        #     self.gym.apply_rigid_body_force_tensors(
-        #         self.sim,
-        #         gymtorch.unwrap_tensor(self.rb_forces),
-        #         None,
-        #         gymapi.LOCAL_SPACE,
-        #     )
-
-        #########
-
-        # step physics and render each frame
-        # for i in range(self.control_freq_inv): # 2 for 60 Hz
-        manip_substeps = 1
-        for i in range(manip_substeps):
-            # if self.force_render:
-            #     self.render()
-            self.gym.simulate(self.sim)
-
-        # to fix!
-        # if self.device == "cpu":
-        #     self.gym.fetch_results(self.sim, True)
-
-        # compute observations, rewards, resets, ...
-        # self.post_physics_step(simulate=simulate)
-            
-        ######### UNROLLING POST-PHYSICS STEP
-            
-        # self.progress_buf += 1
-
-        # self.compute_observations(skip_manipulability=True)
-        # self.compute_observations_manip()
-
-        # UNROLLING COMPUTE OBSERVATIONS
-
-        ############################
-        self.gym.refresh_dof_state_tensor(self.sim)
-        self.gym.refresh_actor_root_state_tensor(self.sim)
-        self.gym.refresh_rigid_body_state_tensor(self.sim)
-
-        # if self.obs_type == "full_state" or self.asymmetric_obs:
-        #     self.gym.refresh_force_sensor_tensor(self.sim)
-        #     self.gym.refresh_dof_force_tensor(self.sim)
-
-        if self.num_objects > 1:
-            palm_index = [self.palm_index + b for b in self.env_num_bodies]
-        else:
-            palm_index = self.palm_index
-        obs_dict = {}
-        obs_dict["hand_joint_pos"] = unscale(
-            self.shadow_hand_dof_pos,
-            self.shadow_hand_dof_lower_limits,
-            self.shadow_hand_dof_upper_limits,
-        )
-        obs_dict["hand_joint_vel"] = self.vel_obs_scale * self.shadow_hand_dof_vel
-        obs_dict["object_pose"] = self.root_state_tensor[self.object_indices, 0:7]
-        obs_dict["object_pos"] = self.root_state_tensor[self.object_indices, 0:3]
-        obs_dict["object_quat"] = self.root_state_tensor[self.object_indices, 3:7]
-        obs_dict["goal_pose"] = self.goal_states[:, 0:7]
-        obs_dict["goal_pos"] = self.goal_states[:, 0:3]
-        obs_dict["goal_quat"] = self.goal_states[:, 3:7]
-        obs_dict["object_lin_vel"] = self.root_state_tensor[self.object_indices, 7:10]
-        obs_dict["object_ang_vel"] = (
-            self.vel_obs_scale * self.root_state_tensor[self.object_indices, 10:13]
-        )
-
-        obs_dict["object_dof_pos"] = self.object_dof_pos.view(self.num_envs, -1)
-        if self.scale_dof_pos:
-            obs_dict["object_dof_pos"] = unscale(
-                obs_dict["object_dof_pos"].view(
-                    self.num_envs // self.num_objects, self.num_objects, -1
-                ),
-                self.object_dof_lower_limits,
-                self.object_dof_upper_limits,
-            ).view(self.num_envs, -1)
-
-        if isinstance(self.object_target_dof_pos, torch.Tensor):
-            object_target_dof = (
-                self.object_target_dof_pos.unsqueeze(0)
-                .repeat(self.num_envs // self.num_objects, 1)
-                .unsqueeze(-1)
-            )
-        else:
-            object_target_dof = self.object_target_dof_pos * torch.ones_like(
-                obs_dict["object_dof_pos"]
-            )
-
-        obs_dict["goal_dof_pos"] = object_target_dof.view(self.num_envs, -1)
-        if self.scale_dof_pos:
-            obs_dict["goal_dof_pos"] = unscale(
-                obs_dict["goal_dof_pos"].view(
-                    self.num_envs // self.num_objects, self.num_objects, -1
-                ),
-                self.object_dof_lower_limits,
-                self.object_dof_upper_limits,
-            ).view(self.num_envs, -1)
-
-        obs_dict["hand_init_pos"] = self.hand_init_pos
-        obs_dict["hand_init_quat"] = self.hand_init_quat
-        obs_dict["hand_pos"] = self.root_state_tensor[self.hand_indices + 1, 0:3]
-        obs_dict["hand_quat"] = self.root_state_tensor[self.hand_indices + 1, 3:7]
-        # open and append hand_pos and hand_quat to a npz file for debugging
-        # if os.path.exists("hand_pos_quat.npz"):
-        #     d = np.load("hand_pos_quat.npz")
-        #     hand_pos = np.concatenate([d['hand_pos'], obs_dict["hand_pos"].cpu().numpy()])
-        #     hand_quat = np.concatenate([d['hand_quat'], obs_dict["hand_quat"].cpu().numpy()])
-        # else:
-        #     hand_pos = obs_dict["hand_pos"].cpu().numpy()[:1]
-        #     hand_quat = obs_dict["hand_quat"].cpu().numpy()[:1]
-        # np.savez("hand_pos_quat.npz", hand_pos=hand_pos, hand_quat=hand_quat)
-
-        obs_dict["hand_palm_pos"] = self.rigid_body_states[:, palm_index, 0:3].view(
-            self.num_envs, -1
-        )
-        obs_dict["hand_palm_quat"] = self.rigid_body_states[:, palm_index, 3:7].view(
-            self.num_envs, -1
-        )
-        obs_dict["hand_palm_vel"] = self.vel_obs_scale * self.rigid_body_states[
-            :, palm_index, 7:10
-        ].view(self.num_envs, -1)
-        obs_dict["fingertip_pose_vel"] = self.rigid_body_states[
-            :, self.fingertip_indices
-        ][:, :, 0:10].view(
-            self.num_envs, -1, 10
-        )  # n_envs x 4 x 10
-        obs_dict["fingertip_pos"] = obs_dict["fingertip_pose_vel"][:, :, 0:3]
-        obs_dict["fingertip_rot"] = obs_dict["fingertip_pose_vel"][:, :, 3:7]
-        obs_dict["fingertip_vel"] = obs_dict["fingertip_pose_vel"][:, :, 7:10]
-        obs_dict["actions"] = self.actions
-        obs_dict["hand_joint_pos_err"] = (
-            self.prev_targets[:, self.actuated_dof_indices] - obs_dict["hand_joint_pos"]
-        )
-
-        obs_dict["object_type"] = (
-            to_torch(
-                np.concatenate(
-                    [
-                        [
-                            SUPPORTED_PARTNET_OBJECTS.index(otype)
-                            for _ in self.object_instance.get(
-                                otype, self.asset_files_dict[otype]
-                            )
-                        ]
-                        for otype in self.object_type
-                    ]
-                ),
-                device=self.device,
-            )
-            .repeat(self.num_envs // self.num_objects)
-            .unsqueeze(-1)
-        )
-
-        obs_dict["object_instance"] = (
-            to_torch(self.env_instance_order, device=self.device)
-            .repeat(self.num_envs // self.num_objects)
-            .unsqueeze(-1)
-        )
-
-        object_instance_one_hot = torch.nn.functional.one_hot(
-            obs_dict["object_instance"].to(torch.int64),
-            num_classes=self.max_obj_instances,
-        ).squeeze(-2)
-        object_type_one_hot = torch.nn.functional.one_hot(
-            obs_dict["object_type"].to(torch.int64),
-            num_classes=len(SUPPORTED_PARTNET_OBJECTS),
-        ).squeeze(-2)
-        obs_dict["object_instance_one_hot"] = object_instance_one_hot.to(self.device)
-        obs_dict["object_type_one_hot"] = object_type_one_hot.to(self.device)
-
-        # print("self.reward_params", self.reward_params)
-        # if not skip_manipulability and (
-        #     "manipulability_reward" in self.reward_params.keys()
-        #     or "manipulability_reward_goal_cond" in self.reward_params.keys()
-        #     or "manipulability_reward_vectorized" in self.reward_params.keys()
-        # ):
-
-        # just checking for the word "manipulability" in the reward_params keys
-        # if not skip_manipulability and any(
-        #     ["manipulability" in key for key in self.reward_params.keys()]
-        # ):
-
-        actions_copy = self.actions.clone()
-        progress_buf_copy = self.progress_buf.clone()
-        reset_goal_buf_copy = self.reset_goal_buf.clone()
-        reset_buf_copy = self.reset_buf.clone()
-        rew_buf_copy = self.rew_buf.clone()
-        timeout_buf_copy = self.timeout_buf.clone()
-        successes_copy = self.successes.clone()
-        obs_buf_copy = self.obs_buf.clone()
-            
-        if "manipulability_reward" in self.reward_params.keys():
-            obs_dict["manipulability"] = self.get_manipulability_fd(f=self.manip_step, obs_dict=obs_dict, obs_keys=["object_pose"], action=self.actions) # action=torch.zeros_like(self.actions))
-        elif "manipulability_reward_vectorized" in self.reward_params.keys():
-            obs_dict["manipulability"] = self.get_manipulability_fd_parallel_actions(f=self.manip_step, obs_dict=obs_dict, obs_keys=["object_pose"], action=self.actions) # action=torch.zeros_like(self.actions))
-        elif "manipulability_reward_vec" in self.reward_params.keys():
-            obs_dict["manipulability"] = self.get_manipulability_fd_rand_vec(f=self.manip_step, obs_dict=obs_dict, obs_keys=["object_pose"], action=self.actions)
-        else:
-            raise NotImplementedError
-        
-        # obs_dict["manipulability"] = torch.zeros((self.num_envs, 1, 1), device=self.device) # placeholder
-        # print("manipulability", obs_dict["manipulability"])
-
-        self.assign_act(actions_copy)
-        self.progress_buf.copy_(progress_buf_copy)
-        self.reset_goal_buf.copy_(reset_goal_buf_copy)
-        self.reset_buf.copy_(reset_buf_copy)
-        self.rew_buf.copy_(rew_buf_copy)
-        self.timeout_buf.copy_(timeout_buf_copy)
-        self.successes.copy_(successes_copy)
-        self.obs_buf.copy_(obs_buf_copy)
-
-        self.current_obs_dict = obs_dict
-        # for key in self.obs_keys:
-        #     if key in obs_dict:
-        #         self.obs_dict[key][:] = obs_dict[key]
-
-        obs_tensor = self.obs_dict_to_tensor(obs_dict, self.obs_keys)
-        # check obs shape
-        assert (
-            obs_tensor.shape[-1] == self.num_obs_dict[self.obs_type]
-        ), f"Obs shape {obs_tensor.shape} not correct!"
-        self.obs_buf[:] = obs_tensor
-        if self.use_image_obs:
-            IsaacGymCameraBase.compute_observations(self)
-
-        ############################
-
-        # self.compute_reward()
-        # print('reward', self.current_rew_dict)
-        # self.extras["consecutive_successes"] = self.reward_extras[
-        #     "consecutive_successes"
-        # ].mean()
-        # self.extras["goal_dist"] = torch.norm(
-        #     self.current_obs_dict["object_pos"] - self.current_obs_dict["goal_pos"],
-        #     p=2,
-        #     dim=-1,
-        # )
-        # self.extras["hand_dist"] = torch.norm(
-        #     self.current_obs_dict["hand_palm_pos"]
-        #     - self.current_obs_dict["object_pos"],
-        #     p=2,
-        #     dim=-1,
-        # )
-        # self.extras["fingertip_dist"] = torch.norm(
-        #     self.current_obs_dict["fingertip_pos"]
-        #     - self.current_obs_dict["object_pos"].unsqueeze(1),
-        #     p=2,
-        #     dim=-1,
-        # ).sum(-1)
-        # self.extras["full_hand_dist"] = (
-        #     self.extras["hand_dist"] + self.extras["fingertip_dist"]
-        # )
-
-        # self.extras["success"] = self._check_success().flatten()
-
-        # if self.print_success_stat and self.reset_buf.sum() > 0:
-        #     self.total_resets = self.total_resets + self.reset_buf.sum()
-        #     direct_average_successes = self.total_successes + self.successes.sum()
-        #     self.total_successes = (
-        #         self.total_successes + (self.successes * self.reset_buf).sum()
-        #     )
-
-            # The direct average shows the overall result more quickly, but slightly undershoots long term
-            # policy performance.
-            # print(
-            #     "Direct average consecutive successes = {:.1f}".format(
-            #         direct_average_successes / (self.total_resets + self.num_envs)
-            #     )
-            # )
-            # if self.total_resets > 0:
-            #     print(
-            #         "Post-Reset average consecutive successes = {:.1f}".format(
-            #             self.total_successes / self.total_resets
-            #         )
-            #     )
-
-        # if self.viewer and self.debug_viz:
-        #     self.debug_visualization()
-
-        #########
-
-        # fill time out buffer: set to 1 if we reached the max episode length AND the reset buffer is 1. Timeout == 1 makes sense only if the reset buffer is 1.
-        # self.timeout_buf = (self.progress_buf >= self.max_episode_length - 1) & (
-        #     self.reset_buf != 0
-        # )
-
-        # # randomize observations
-        # if self.dr_randomizations.get("observations", None):
-        #     self.obs_buf = self.dr_randomizations["observations"]["noise_lambda"](
-        #         self.obs_buf
-        #     )
-
-        # self.extras["time_outs"] = self.timeout_buf.to(self.rl_device)
-
-        # self.obs_dict["obs"] = torch.clamp(
-        #     self.obs_buf, -self.clip_obs, self.clip_obs
-        # ).to(self.rl_device)
-
-        # # asymmetric actor-critic
-        # if self.num_states > 0:
-        #     self.obs_dict["states"] = self.get_state()
-
-        return (
-            self.current_obs_dict,
-            None, # self.rew_buf.to(self.rl_device),
-            None, # self.reset_buf.to(self.rl_device),
-            None # self.extras,
-        )
-
-
-    def get_manipulability_fd(self, f, obs_dict, obs_keys, action, eps=1e-2):
-        ''' Compute the finite difference jacobian to compute manipulability
-
-        Args:
-            f (function): dynamics function
-            obs_keys: list of keys to obs_dict
-            action: action
-            eps: finite difference step
-        
-        '''
-
-        # TODO: torch -> numpy (.cpu().numpy()) -> torch -> isaacgym. don't call wrap_tensor, use self.actor_root_state etc
-        # These tensors are updated in compute_observations(), so they don't need updating (refreshing) beforehand
-        
-        # initial_actor_root_state_tensor = torch.from_numpy(gymtorch.wrap_tensor(self.actor_root_state_tensor).cpu().numpy()).to(self.device)
-        # initial_dof_state_tensor = torch.from_numpy(gymtorch.wrap_tensor(self.dof_state_tensor).cpu().numpy()).to(self.device)
-        # initial_rigid_body_state_tensor = torch.from_numpy(gymtorch.wrap_tensor(self.rigid_body_tensor).cpu().numpy()).to(self.device)
-
-        actor_root_state_buffer = gymtorch.wrap_tensor(self.actor_root_state_tensor).clone()
-        dof_state_buffer = gymtorch.wrap_tensor(self.dof_state_tensor).clone()
-        rigid_body_state_buffer = gymtorch.wrap_tensor(self.rigid_body_tensor).clone()
-
-        obs = self.obs_dict_to_tensor(obs_dict, obs_keys)
-        bs = action.shape[0]
-        input_dim = action.shape[1]
-        output_dim = obs.shape[1]
-        manipulability_fd = torch.empty((bs, output_dim, input_dim), dtype=torch.float64, device=self.device) # TODO: allocate outside of this function
-
-        for i in range(input_dim):
-            action[:, i] += eps # perturbing the input (x + eps)
-
-            obs_dict_1, _, _, _ = f(action)
-            action[:, i] -= 2 * eps # perturbing the input the other way (x - eps)
-
-            obs_dict_2, _, _, _ = f(action)
-            action[:, i] += eps # set the input back to initial value
-
-            next_state_1 = self.obs_dict_to_tensor(obs_dict_1, obs_keys)
-            next_state_2 = self.obs_dict_to_tensor(obs_dict_2, obs_keys)
-
-            # doutput/dinput
-            manipulability_fd[:, :, i] = (next_state_1 - next_state_2) / (2 * eps) # each col = doutput[:]/dinput[i]
-
-            self.manip_reset(actor_root_state_buffer, dof_state_buffer, rigid_body_state_buffer)
-
-            # # garbage collection
-            # del actor_root_state_buffer
-            # del dof_state_buffer
-            # del rigid_body_state_buffer
-
-        return manipulability_fd
-
-    def get_manipulability_fd_parallel_actions(self, f, obs_dict, obs_keys, action, eps=1e-2):
-        '''
-        Calculates finite difference manipulability by perturbing each action dimension separately across parallel environments.
-
-        Args:
-            f (function): dynamics function
-            obs_keys: list of keys to obs_dict
-            action: action
-            eps: finite difference step
-        '''
-        actor_root_state_buffer = self.root_state_tensor.clone()
-        dof_state_buffer = self.dof_state.clone()
-        rigid_body_state_buffer = self.rigid_body_states.clone()
-
-        obs = self.obs_dict_to_tensor(obs_dict, obs_keys)
-        bs = action.shape[0]
-        input_dim = action.shape[1]
-        output_dim = obs.shape[1]
-        # manipulability_fd = torch.empty((bs, output_dim, input_dim), dtype=torch.float64, device=self.device) # TODO: allocate outside of this function
-
-        assert bs % (2 * input_dim) == 0, "the number of environments must be divisible by 2 * input dim for vectorized finite difference manipulability calculation"
-        
-        num_manips = bs // (input_dim * 2)
-        
-        # instead of taking the first num_manips rows, take every input_dim rows
-        actor_root_state_tensor_rows = actor_root_state_buffer.view(bs, 3, 13)[0::input_dim] # (num_manips, 3, 13)
-        initial_actor_root_state_tensor_copied_rows = actor_root_state_tensor_rows.repeat_interleave(input_dim, dim=0) # (num_manips*input_dim, 3, 13)
-        initial_actor_root_state_tensor_copied = initial_actor_root_state_tensor_copied_rows.view(-1, 13) # (num_manips*input_dim*3, 13)
-
-        dof_state_tensor_rows = dof_state_buffer.view(bs, 24, 2)[0::input_dim] # (num_manips, 24, 2)
-        initial_dof_state_tensor_copied_rows = dof_state_tensor_rows.repeat_interleave(input_dim, dim=0) # (num_manips*input_dim, 24, 2)
-        initial_dof_state_tensor_copied = initial_dof_state_tensor_copied_rows.view(-1, 2) # (num_manips*input_dim*24, 2)
-
-        # self.rigid_body_tensor = gymtorch.wrap_tensor(self.rigid_body_tensor).clone().view(bs, 37, 13)[0].repeat(bs, 1, 1).view(-1, 13)
-        # rigid_body_tensor_row = initial_rigid_body_state_tensor.view(bs, 37, 13)[0]
-        # print("rigid_body_tensor_row shape", rigid_body_tensor_row.shape)
-        # initial_rigid_body_state_tensor_copied = rigid_body_tensor_row.repeat(bs, 1, 1).view(-1, 13)
-        # print("copied rigid_body_tensor shape", self.rigid_body_tensor.shape)
-
-        # eps_parallel = torch.eye(input_dim, device=self.device).repeat(num_manips * 2, 1) * eps  # (num_manips*input_dim*2, input_dim)
-
-        # eye with adjacent rows having opposite signs ([1, 0, 0], [-1, 0, 0], [0, 1, 0], [0, -1, 0], ...)
-        eps_parallel = torch.eye(input_dim, device=self.device).repeat(num_manips, 1).repeat_interleave(2, dim=0) * eps  # (num_manips*input_dim*2, input_dim)
-        eps_parallel[1::2] *= -1 # alternate rows have opposite signs
-
-        action += eps_parallel # perturbing the input (x + eps and x - eps for each dimension)
-
-        # obs_dict_1, _, _, _ = f(action)
-        # action -= 2 * eps_parallel # perturbing the input the other way (x - eps for each dimension)
-
-        # obs_dict_2, _, _, _ = f(action)
-        # action += eps_parallel # set the input back to initial value
-
-        obs_dict_1, _, _, _ = f(action)
-
-        # next_state_1 = self.obs_dict_to_tensor(obs_dict_1, obs_keys) # (num_manips*input_dim, output_dim)
-        # next_state_2 = self.obs_dict_to_tensor(obs_dict_2, obs_keys) # (num_manips*input_dim, output_dim)
-
-        states = self.obs_dict_to_tensor(obs_dict_1, obs_keys) # (num_manips*input_dim*2, output_dim)
-
-        next_state_1 = states[0::2] # (num_manips*input_dim, output_dim) # even rows
-        next_state_2 = states[1::2] # (num_manips*input_dim, output_dim) # odd rows
-
-        # doutput/dinput
-        manipulability_fd = (next_state_1 - next_state_2) / (2 * eps) # (num_manips*input_dim, output_dim)
-
-        # self.manip_reset(actor_root_state_buffer, dof_state_buffer, rigid_body_state_buffer)
-        self.manip_reset(initial_actor_root_state_tensor_copied, initial_dof_state_tensor_copied, rigid_body_state_buffer)
-
-        # # garbage collection
-        # del actor_root_state_buffer
-        # del dof_state_buffer
-        # del rigid_body_state_buffer
-
-        return manipulability_fd
-
-    def get_manipulability_fd_rand_vec(self, f, obs_dict, obs_keys, action, eps=1e-2):
-        '''
-        Calculates finite difference manipulability by randomly perturbing actions separately across parallel environments.
-
-        Args:
-            f (function): dynamics function
-            obs_keys: list of keys to obs_dict
-            action: action
-            eps: finite difference step
-        '''
-
-        # TODO: torch -> numpy (.cpu().numpy()) -> torch -> isaacgym. don't call wrap_tensor, use self.actor_root_state etc
-        # These tensors are updated in compute_observations(), so they don't need updating beforehand
-        actor_root_state_buffer = self.root_state_tensor.clone()
-        dof_state_buffer = self.dof_state.clone()
-        rigid_body_state_buffer = self.rigid_body_states.clone()
-
-        obs = self.obs_dict_to_tensor(obs_dict, obs_keys)
-        bs = action.shape[0]
-        input_dim = action.shape[1]
-        output_dim = obs.shape[1]
-        # manipulability_fd = torch.empty((bs, output_dim, input_dim), dtype=torch.float64, device=self.device) # TODO: allocate outside of this function
-
-        # zero_prob = 0.5
-        # rand = torch.rand((bs, input_dim), device=self.device)
-        # eps_parallel = (rand > zero_prob).int() * eps
-
-        # making eps parallel a random unit vector for each row
-        rand = torch.randn((bs, input_dim), device=self.device)
-        eps_parallel = rand / torch.norm(rand, dim=1, keepdim=True) * eps
-
-        # for i in range(input_dim):
-        action += eps_parallel # perturbing the input (x + eps for each dimension)
-
-        obs_dict_1, _, _, _ = f(action)
-        action -= 2 * eps_parallel # perturbing the input the other way (x - eps for each dimension)
-
-        obs_dict_2, _, _, _ = f(action)
-        action += eps_parallel # set the input back to initial value
-
-        next_state_1 = self.obs_dict_to_tensor(obs_dict_1, obs_keys) # (num_manips*input_dim, output_dim)
-        next_state_2 = self.obs_dict_to_tensor(obs_dict_2, obs_keys) # (num_manips*input_dim, output_dim)
-
-        # doutput/dinput
-        manipulability_fd = (next_state_1 - next_state_2) / (2 * eps) # (num_manips*input_dim, output_dim)
-
-        self.manip_reset(actor_root_state_buffer, dof_state_buffer, rigid_body_state_buffer)
-
-        # # garbage collection
-        # del actor_root_state_buffer
-        # del dof_state_buffer
-        # del rigid_body_state_buffer
-
-        return manipulability_fd
 
 class ArticulateTaskCamera(ArticulateTask):
     dict_obs_cls: bool = True

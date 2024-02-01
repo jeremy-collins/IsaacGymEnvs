@@ -154,3 +154,11 @@ def project_tmp_dir():
     tmp_dir_name = f'ige_{get_username()}'
     return safe_ensure_dir_exists(join(tempfile.gettempdir(), tmp_dir_name))
 # EOF
+
+
+def obs_dict_to_tensor(obs_dict, obs_keys, num_envs):
+        obs = []
+        for key in obs_keys:
+            obs.append(obs_dict[key].view(num_envs, -1))
+        obs_tensor = torch.cat(obs, dim=-1)
+        return obs_tensor
