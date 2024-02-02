@@ -137,13 +137,13 @@ task:
             # schedule: "linear"  # "linear" will scale the current random sample by `min(current num steps, schedule_steps) / schedule_steps`
             # schedule_steps: 30000
           lower:
-            range: [0, 0.01]
+            range: [0, 0.0]
             operation: "additive"
             distribution: "gaussian"
             # schedule: "linear"  # "linear" will scale the current random sample by `min(current num steps, schedule_steps) / schedule_steps`
             # schedule_steps: 30000
           upper:
-            range: [0, 0.01]
+            range: [0, 0.0]
             operation: "additive"
             distribution: "gaussian"
             # schedule: "linear"  # "linear" will scale the current random sample by `min(current num steps, schedule_steps) / schedule_steps`

@@ -23,13 +23,13 @@ def manip_step(
         #     actions = self.dr_randomizations["actions"]["noise_lambda"](actions)
 
         # action_tensor = torch.clamp(actions, -self.clip_actions, self.clip_actions)
-        action_tensor = torch.clamp(kwargs["actions"], -kwargs["clip_actions"], kwargs["clip_actions"])
+        kwargs["actions"] = torch.clamp(kwargs["actions"], -kwargs["clip_actions"], kwargs["clip_actions"])
         # apply actions
         # self.pre_physics_step(action_tensor)
         ######### UNROLLING PRE-PHYSICS STEP
 
         # modify self.cur_targets and self.prev_targets
-        actions = action_tensor.clone().to(kwargs["device"])
+        # actions = action_tensor.clone().to(kwargs["device"])
         # self.assign_act(actions)
 
         ######### UNROLLING ASSIGN_ACT
@@ -74,7 +74,6 @@ def manip_step(
         for i in range(manip_substeps):
             # if self.force_render:
             #     self.render()
-            # gym.simulate(sim)
             print("simulating (manip_step)")
             kwargs["gym"].simulate(kwargs["sim"])
 
@@ -266,7 +265,7 @@ def manip_reset(gym, sim, prev_actor_root_state_tensor, prev_dof_state_tensor, p
     # kwargs["gym"].refresh_actor_root_state_tensor(kwargs["sim"])
     # kwargs["gym"].refresh_dof_state_tensor(kwargs["sim"])
     # kwargs["gym"].refresh_rigid_body_state_tensor(kwargs["sim"])
-    # print("set_actor_root_state_tensor in manip_reset")
+    print("set_actor_root_state_tensor in manip_reset")
     gym.set_actor_root_state_tensor(
         sim,
         gymtorch.unwrap_tensor(prev_actor_root_state_tensor)
@@ -301,12 +300,11 @@ def get_manipulability_fd(kwargs):
         
         '''
 
-        # TODO: torch -> numpy (.cpu().numpy()) -> torch -> isaacgym. don't call wrap_tensor, use self.actor_root_state etc
-        # These tensors are updated in compute_observations(), so they don't need updating (refreshing) beforehand
-
-        actor_root_state_buffer = gymtorch.wrap_tensor(kwargs["actor_root_state_tensor"]).clone()
-        dof_state_buffer = gymtorch.wrap_tensor(kwargs["dof_state_tensor"]).clone()
-        rigid_body_state_buffer = gymtorch.wrap_tensor(kwargs["rigid_body_tensor"]).clone()
+        prev_bufs_manip = {
+        "prev_actor_root_state_tensor": kwargs["root_state_tensor"].clone(),
+        "prev_dof_state_tensor": kwargs["dof_state_tensor"].clone(),
+        "prev_rigid_body_tensor": kwargs["rigid_body_states"].clone(),
+        }
 
         obs = obs_dict_to_tensor(kwargs["obs_dict"], kwargs["obs_keys_manip"], kwargs["num_envs"])
         bs = kwargs["actions"].shape[0]
@@ -329,14 +327,7 @@ def get_manipulability_fd(kwargs):
             # doutput/dinput
             manipulability_fd[:, :, i] = (next_state_1 - next_state_2) / (2 * kwargs["eps"]) # each col = doutput[:]/dinput[i]
 
-            manip_reset(kwargs["gym"], kwargs["sim"], actor_root_state_buffer, dof_state_buffer, rigid_body_state_buffer)
-
-            # # garbage collection
-            # del actor_root_state_buffer
-            # del dof_state_buffer
-            # del rigid_body_state_buffer
-
-        return manipulability_fd
+        return manipulability_fd, prev_bufs_manip
 
 # def get_manipulability_fd_parallel_actions(f, obs_dict, obs_keys, action, eps=1e-2):
 def get_manipulability_fd_parallel_actions(kwargs):
@@ -349,21 +340,12 @@ def get_manipulability_fd_parallel_actions(kwargs):
         action: action
         eps: finite difference step
     '''
-    # actor_root_state_buffer = kwargs["root_state_tensor"]
-    # dof_state_buffer = kwargs["dof_state_tensor"]
-    # rigid_body_state_buffer = kwargs["rigid_body_states"]
 
-    prev_bufs_manip = (
-        #  actor_root_state_buffer,
-        #  dof_state_buffer,
-        #  rigid_body_state_buffer
-        kwargs["root_state_tensor"],
-        kwargs["dof_state_tensor"],
-        kwargs["rigid_body_states"],
-        # initial_actor_root_state_tensor_copied,
-        # initial_dof_state_tensor_copied,
-        # initial_rigid_body_tensor_copied
-    )
+    prev_bufs_manip = {
+        "prev_actor_root_state_tensor": kwargs["root_state_tensor"].clone(),
+        "prev_dof_state_tensor": kwargs["dof_state_tensor"].clone(),
+        "prev_rigid_body_tensor": kwargs["rigid_body_states"].clone(),
+    }
 
     obs = obs_dict_to_tensor(kwargs["obs_dict"], kwargs["obs_keys_manip"], kwargs["num_envs"])
     bs = kwargs["actions"].shape[0]
@@ -374,7 +356,6 @@ def get_manipulability_fd_parallel_actions(kwargs):
     assert bs % (2 * input_dim) == 0, "the number of environments must be divisible by 2 * input dim for vectorized finite difference manipulability calculation"
     
     num_manips = bs // (input_dim * 2)
-    
 
     # # copying states so we can compute manipulability in parallel
     # actor_root_state_tensor_rows = actor_root_state_buffer.view(bs, 3, 13)[0::input_dim] # (num_manips, 3, 13) select every input_dim-th row
@@ -407,11 +388,6 @@ def get_manipulability_fd_parallel_actions(kwargs):
 
     # manip_reset(kwargs["gym"], kwargs["sim"], actor_root_state_buffer, dof_state_buffer, rigid_body_state_buffer)
 
-    # # garbage collection
-    # del actor_root_state_buffer
-    # del dof_state_buffer
-    # del rigid_body_state_buffer
-    
     return manipulability_fd, prev_bufs_manip
 
 # def get_manipulability_fd_rand_vec(f, obs_dict, obs_keys, action, eps=1e-2):
@@ -425,6 +401,12 @@ def get_manipulability_fd_rand_vec(kwargs):
         action: action
         eps: finite difference step
     '''
+
+    prev_bufs_manip = {
+        "prev_actor_root_state_tensor": kwargs["root_state_tensor"].clone(),
+        "prev_dof_state_tensor": kwargs["dof_state_tensor"].clone(),
+        "prev_rigid_body_tensor": kwargs["rigid_body_states"].clone(),
+    }
 
     # TODO: torch -> numpy (.cpu().numpy()) -> torch -> isaacgym. don't call wrap_tensor, use self.actor_root_state etc
     # These tensors are updated in compute_observations(), so they don't need updating beforehand
@@ -461,11 +443,4 @@ def get_manipulability_fd_rand_vec(kwargs):
     # doutput/dinput
     manipulability_fd = (next_state_1 - next_state_2) / (2 * kwargs["eps"]) # (num_manips*input_dim, output_dim)
 
-    manip_reset(kwargs["gym"], kwargs["sim"], actor_root_state_buffer, dof_state_buffer, rigid_body_state_buffer)
-
-    # # garbage collection
-    # del actor_root_state_buffer
-    # del dof_state_buffer
-    # del rigid_body_state_buffer
-
-    return manipulability_fd
+    return manipulability_fd, prev_bufs_manip
