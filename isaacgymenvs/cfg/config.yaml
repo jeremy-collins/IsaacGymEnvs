@@ -36,19 +36,29 @@ num_subscenes: 4 # Splits the simulation into N physics scenes and runs each one
 test: False
 # used to set checkpoint path
 checkpoint: ''
+# used to load config if in encluded checkpoint path
+load_config: false
 # set sigma when restoring network
 sigma: ''
-# set to True to use multi-gpu horovod training
+# set to True to use multi-gpu training
 multi_gpu: False
 
 wandb_activate: False
 wandb_group: ''
 wandb_name: ${train.params.config.name}
+<<<<<<< HEAD
 wandb_entity: ''
 # wandb_project: 'isaacgymenvs'
 wandb_project: 'manipulability-isaacgym'
 wandb_tags: []
 wandb_logcode_dir: ''
+=======
+wandb_entity: 'krshna'
+wandb_project: 'isaacgymenvs'
+wandb_tags: []
+wandb_logcode_dir: '' 
+wandb_notes: '' 
+>>>>>>> internal/2024_01_25_dispensers
 
 capture_video: False
 capture_video_freq: 1464
@@ -62,7 +72,9 @@ headless: False
 defaults:
   - task: AllegroHandGrasp
   - train: ${task}PPO
-  - hydra/job_logging: disabled
+  - pbt: no_pbt
+  - override hydra/job_logging: disabled
+  - _self_
 
 # set the directory where the output files get saved
 hydra:

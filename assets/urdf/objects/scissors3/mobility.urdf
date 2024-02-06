@@ -1,0 +1,248 @@
+<?xml version="1.0" ?>
+<robot name="partnet_f4897c9b20e811f1309c3ff4f31971fa">
+	<link name="base"/>
+	<link name="link_0">
+		<visual name="blade-12">
+			<origin xyz="0.03843823108857682 0 -0.008270029030583895"/>
+			<geometry>
+				<mesh filename="textured_objs/new-4.obj" scale="0.2 0.2 0.2"/>
+			</geometry>
+		</visual>
+		<visual name="handle-13">
+			<origin xyz="0.03843823108857682 0 -0.008270029030583895"/>
+			<geometry>
+				<mesh filename="textured_objs/original-4.obj" scale="0.2 0.2 0.2"/>
+			</geometry>
+		</visual>
+		<visual name="handle-13">
+			<origin xyz="0.03843823108857682 0 -0.008270029030583895"/>
+			<geometry>
+				<mesh filename="textured_objs/original-3.obj" scale="0.2 0.2 0.2"/>
+			</geometry>
+		</visual>
+		<collision>
+			<origin xyz="0.03843823108857682 0 -0.008270029030583895"/>
+			<geometry>
+				<mesh filename="textured_objs/new-4.obj" scale="0.2 0.2 0.2"/>
+			</geometry>
+		</collision>
+		<collision>
+			<origin xyz="0.03843823108857682 0 -0.008270029030583895"/>
+			<geometry>
+				<mesh filename="textured_objs/original-4.obj" scale="0.2 0.2 0.2"/>
+			</geometry>
+		</collision>
+		<collision>
+			<origin xyz="0.03843823108857682 0 -0.008270029030583895"/>
+			<geometry>
+				<mesh filename="textured_objs/original-3.obj" scale="0.2 0.2 0.2"/>
+			</geometry>
+		</collision>
+	</link>
+	<joint name="joint_0" type="revolute">
+		<origin xyz="-0.03843823108857682 0 0.008270029030583895"/>
+		<axis xyz="0 -1 0"/>
+		<child link="link_0"/>
+		<parent link="link_1"/>
+		<limit lower="-0.0" upper="0.8545132017764234"/>
+	</joint>
+	<link name="link_1">
+		<visual name="screw-3">
+			<origin xyz="0 0 0"/>
+			<geometry>
+				<mesh filename="textured_objs/new-0.obj" scale="0.2 0.2 0.2"/>
+			</geometry>
+		</visual>
+		<visual name="screw-3">
+			<origin xyz="0 0 0"/>
+			<geometry>
+				<mesh filename="textured_objs/new-1.obj" scale="0.2 0.2 0.2"/>
+			</geometry>
+		</visual>
+		<visual name="blade-10">
+			<origin xyz="0 0 0"/>
+			<geometry>
+				<mesh filename="textured_objs/original-31.obj" scale="0.2 0.2 0.2"/>
+			</geometry>
+		</visual>
+		<visual name="blade-10">
+			<origin xyz="0 0 0"/>
+			<geometry>
+				<mesh filename="textured_objs/original-32.obj" scale="0.2 0.2 0.2"/>
+			</geometry>
+		</visual>
+		<visual name="blade-10">
+			<origin xyz="0 0 0"/>
+			<geometry>
+				<mesh filename="textured_objs/original-33.obj" scale="0.2 0.2 0.2"/>
+			</geometry>
+		</visual>
+		<visual name="blade-10">
+			<origin xyz="0 0 0"/>
+			<geometry>
+				<mesh filename="textured_objs/original-34.obj" scale="0.2 0.2 0.2"/>
+			</geometry>
+		</visual>
+		<visual name="blade-10">
+			<origin xyz="0 0 0"/>
+			<geometry>
+				<mesh filename="textured_objs/original-35.obj" scale="0.2 0.2 0.2"/>
+			</geometry>
+		</visual>
+		<visual name="blade-10">
+			<origin xyz="0 0 0"/>
+			<geometry>
+				<mesh filename="textured_objs/original-36.obj" scale="0.2 0.2 0.2"/>
+			</geometry>
+		</visual>
+		<visual name="blade-10">
+			<origin xyz="0 0 0"/>
+			<geometry>
+				<mesh filename="textured_objs/original-37.obj" scale="0.2 0.2 0.2"/>
+			</geometry>
+		</visual>
+		<visual name="blade-10">
+			<origin xyz="0 0 0"/>
+			<geometry>
+				<mesh filename="textured_objs/original-38.obj" scale="0.2 0.2 0.2"/>
+			</geometry>
+		</visual>
+		<visual name="blade-10">
+			<origin xyz="0 0 0"/>
+			<geometry>
+				<mesh filename="textured_objs/new-3.obj" scale="0.2 0.2 0.2"/>
+			</geometry>
+		</visual>
+		<visual name="blade-10">
+			<origin xyz="0 0 0"/>
+			<geometry>
+				<mesh filename="textured_objs/original-39.obj" scale="0.2 0.2 0.2"/>
+			</geometry>
+		</visual>
+		<visual name="blade-10">
+			<origin xyz="0 0 0"/>
+			<geometry>
+				<mesh filename="textured_objs/original-40.obj" scale="0.2 0.2 0.2"/>
+			</geometry>
+		</visual>
+		<visual name="blade-10">
+			<origin xyz="0 0 0"/>
+			<geometry>
+				<mesh filename="textured_objs/original-41.obj" scale="0.2 0.2 0.2"/>
+			</geometry>
+		</visual>
+		<visual name="handle-11">
+			<origin xyz="0 0 0"/>
+			<geometry>
+				<mesh filename="textured_objs/original-27.obj" scale="0.2 0.2 0.2"/>
+			</geometry>
+		</visual>
+		<visual name="handle-11">
+			<origin xyz="0 0 0"/>
+			<geometry>
+				<mesh filename="textured_objs/original-28.obj" scale="0.2 0.2 0.2"/>
+			</geometry>
+		</visual>
+		<collision>
+			<origin xyz="0 0 0"/>
+			<geometry>
+				<mesh filename="textured_objs/new-0.obj" scale="0.2 0.2 0.2"/>
+			</geometry>
+		</collision>
+		<collision>
+			<origin xyz="0 0 0"/>
+			<geometry>
+				<mesh filename="textured_objs/new-1.obj" scale="0.2 0.2 0.2"/>
+			</geometry>
+		</collision>
+		<collision>
+			<origin xyz="0 0 0"/>
+			<geometry>
+				<mesh filename="textured_objs/original-31.obj" scale="0.2 0.2 0.2"/>
+			</geometry>
+		</collision>
+		<collision>
+			<origin xyz="0 0 0"/>
+			<geometry>
+				<mesh filename="textured_objs/original-32.obj" scale="0.2 0.2 0.2"/>
+			</geometry>
+		</collision>
+		<collision>
+			<origin xyz="0 0 0"/>
+			<geometry>
+				<mesh filename="textured_objs/original-33.obj" scale="0.2 0.2 0.2"/>
+			</geometry>
+		</collision>
+		<collision>
+			<origin xyz="0 0 0"/>
+			<geometry>
+				<mesh filename="textured_objs/original-34.obj" scale="0.2 0.2 0.2"/>
+			</geometry>
+		</collision>
+		<collision>
+			<origin xyz="0 0 0"/>
+			<geometry>
+				<mesh filename="textured_objs/original-35.obj" scale="0.2 0.2 0.2"/>
+			</geometry>
+		</collision>
+		<collision>
+			<origin xyz="0 0 0"/>
+			<geometry>
+				<mesh filename="textured_objs/original-36.obj" scale="0.2 0.2 0.2"/>
+			</geometry>
+		</collision>
+		<collision>
+			<origin xyz="0 0 0"/>
+			<geometry>
+				<mesh filename="textured_objs/original-37.obj" scale="0.2 0.2 0.2"/>
+			</geometry>
+		</collision>
+		<collision>
+			<origin xyz="0 0 0"/>
+			<geometry>
+				<mesh filename="textured_objs/original-38.obj" scale="0.2 0.2 0.2"/>
+			</geometry>
+		</collision>
+		<collision>
+			<origin xyz="0 0 0"/>
+			<geometry>
+				<mesh filename="textured_objs/new-3.obj" scale="0.2 0.2 0.2"/>
+			</geometry>
+		</collision>
+		<collision>
+			<origin xyz="0 0 0"/>
+			<geometry>
+				<mesh filename="textured_objs/original-39.obj" scale="0.2 0.2 0.2"/>
+			</geometry>
+		</collision>
+		<collision>
+			<origin xyz="0 0 0"/>
+			<geometry>
+				<mesh filename="textured_objs/original-40.obj" scale="0.2 0.2 0.2"/>
+			</geometry>
+		</collision>
+		<collision>
+			<origin xyz="0 0 0"/>
+			<geometry>
+				<mesh filename="textured_objs/original-41.obj" scale="0.2 0.2 0.2"/>
+			</geometry>
+		</collision>
+		<collision>
+			<origin xyz="0 0 0"/>
+			<geometry>
+				<mesh filename="textured_objs/original-27.obj" scale="0.2 0.2 0.2"/>
+			</geometry>
+		</collision>
+		<collision>
+			<origin xyz="0 0 0"/>
+			<geometry>
+				<mesh filename="textured_objs/original-28.obj" scale="0.2 0.2 0.2"/>
+			</geometry>
+		</collision>
+	</link>
+	<joint name="joint_1" type="fixed">
+		<origin rpy="1.570796326794897 0 -1.570796326794897" xyz="0 0 0"/>
+		<child link="link_1"/>
+		<parent link="base"/>
+	</joint>
+</robot>

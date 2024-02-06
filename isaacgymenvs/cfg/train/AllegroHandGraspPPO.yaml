@@ -71,7 +71,11 @@ params:
     clip_value: True
     seq_len: 4
     bounds_loss_coef: 0.0001
+<<<<<<< HEAD
     score_keys: ['goal_dist', 'hand_dist', 'task_dist']
+=======
+    score_keys: ['goal_dist', 'hand_dist', 'task_dist', 'success', 'full_hand_dist', 'fingertip_dist']
+>>>>>>> internal/2024_01_25_dispensers
 
     player:
       #render: True

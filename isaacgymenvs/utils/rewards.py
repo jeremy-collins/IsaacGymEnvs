@@ -15,7 +15,22 @@ def l2_dist_exp(x, y, eps: float = 1e-1):
 
 @torch.jit.script
 def l2_dist_exp_normalized(x, target):
-    return torch.exp(-torch.linalg.norm(x - target, dim=-1, keepdim=True) / target).sum(dim=-1)
+    return torch.exp(-torch.linalg.norm(x - target, dim=-1, keepdim=True) / target.abs()).sum(dim=-1)
+
+
+@torch.jit.script
+def l1_dist_exp(x, y, eps: float = 1e-1):
+    return torch.exp(-torch.abs(x - y).sum(dim=-1) / eps)
+
+
+@torch.jit.script
+def l1_dist_inv(x, y, eps: float = 1e-1):
+    return 1.0 / (torch.abs(x - y).sum(dim=-1) + eps)
+
+
+@torch.jit.script
+def l1_dist_exp_normalized(x, target):
+    return torch.exp(-torch.abs(x - target).sum(dim=-1, keepdim=True) / target).sum(dim=-1)
 
 
 @torch.jit.script
@@ -112,6 +127,22 @@ def manipulability_l2_norm_rand_vec(manipulability):
     # taking the l2 norm of each row of the manipulability matrix
     # return torch.linalg.norm(manipulability, dim=-1, ord=2)
     return torch.linalg.norm(manipulability, ord=2, dim=-1)
+
+
+def tipped_penalty(object_rot, goal_rot, fall_dist: float = 0.24):
+    object_pose_err = rot_dist(object_rot, goal_rot).view(-1, 1)
+    return torch.where(object_pose_err > fall_dist, torch.ones_like(object_pose_err), torch.zeros_like(object_pose_err))
+
+
+@torch.jit.script
+def joint_limit_penalty(hand_dof_pos, dof_limit_low, dof_limit_high, dof_weights):
+    """reward to penalize hand pose nearing min/max of joint limits"""
+    # hand_dof_pos is num_envs x num_joints
+    dof_weights = dof_weights.view(1, -1)
+    return (
+        torch.linalg.norm(dof_weights * hand_dof_pos - dof_weights * dof_limit_low, dim=-1, keepdim=True).sum(dim=1)
+        + torch.linalg.norm(dof_weights * hand_dof_pos - dof_weights * dof_limit_high, dim=-1, keepdim=True).sum(dim=1)
+    ).view(-1, 1)
 
 
 def parse_reward_params(reward_params_dict):

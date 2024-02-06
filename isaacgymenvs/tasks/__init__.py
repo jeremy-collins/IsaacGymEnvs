@@ -52,44 +52,44 @@ from .dextreme.allegro_hand_dextreme import (
 )
 from .trifinger import Trifinger
 
-# from .allegro_kuka.allegro_kuka_reorientation import AllegroKukaReorientation
-# from .allegro_kuka.allegro_kuka_regrasping import AllegroKukaRegrasping
-# from .allegro_kuka.allegro_kuka_throw import AllegroKukaThrow
-# from .allegro_kuka.allegro_kuka_two_arms_regrasping import AllegroKukaTwoArmsRegrasping
-# from .allegro_kuka.allegro_kuka_two_arms_reorientation import (
-#     AllegroKukaTwoArmsReorientation,
-# )
+from .allegro_kuka.allegro_kuka_reorientation import AllegroKukaReorientation
+from .allegro_kuka.allegro_kuka_regrasping import AllegroKukaRegrasping
+from .allegro_kuka.allegro_kuka_throw import AllegroKukaThrow
+from .allegro_kuka.allegro_kuka_two_arms_regrasping import AllegroKukaTwoArmsRegrasping
+from .allegro_kuka.allegro_kuka_two_arms_reorientation import (
+    AllegroKukaTwoArmsReorientation,
+)
 
-# from .industreal.industreal_task_pegs_insert import IndustRealTaskPegsInsert
-# from .industreal.industreal_task_gears_insert import IndustRealTaskGearsInsert
-
-
-# def resolve_allegro_kuka(cfg, *args, **kwargs):
-#     subtask_name: str = cfg["env"]["subtask"]
-#     subtask_map = dict(
-#         reorientation=AllegroKukaReorientation,
-#         throw=AllegroKukaThrow,
-#         regrasping=AllegroKukaRegrasping,
-#     )
-
-#     if subtask_name not in subtask_map:
-#         print("!!!!!")
-#         raise ValueError(f"Unknown subtask={subtask_name} in {subtask_map}")
-
-#     return subtask_map[subtask_name](cfg, *args, **kwargs)
+from .industreal.industreal_task_pegs_insert import IndustRealTaskPegsInsert
+from .industreal.industreal_task_gears_insert import IndustRealTaskGearsInsert
 
 
-# def resolve_allegro_kuka_two_arms(cfg, *args, **kwargs):
-#     subtask_name: str = cfg["env"]["subtask"]
-#     subtask_map = dict(
-#         reorientation=AllegroKukaTwoArmsReorientation,
-#         regrasping=AllegroKukaTwoArmsRegrasping,
-#     )
+def resolve_allegro_kuka(cfg, *args, **kwargs):
+    subtask_name: str = cfg["env"]["subtask"]
+    subtask_map = dict(
+        reorientation=AllegroKukaReorientation,
+        throw=AllegroKukaThrow,
+        regrasping=AllegroKukaRegrasping,
+    )
 
-#     if subtask_name not in subtask_map:
-#         raise ValueError(f"Unknown subtask={subtask_name} in {subtask_map}")
+    if subtask_name not in subtask_map:
+        print("!!!!!")
+        raise ValueError(f"Unknown subtask={subtask_name} in {subtask_map}")
 
-#     return subtask_map[subtask_name](cfg, *args, **kwargs)
+    return subtask_map[subtask_name](cfg, *args, **kwargs)
+
+
+def resolve_allegro_kuka_two_arms(cfg, *args, **kwargs):
+    subtask_name: str = cfg["env"]["subtask"]
+    subtask_map = dict(
+        reorientation=AllegroKukaTwoArmsReorientation,
+        regrasping=AllegroKukaTwoArmsRegrasping,
+    )
+
+    if subtask_name not in subtask_map:
+        raise ValueError(f"Unknown subtask={subtask_name} in {subtask_map}")
+
+    return subtask_map[subtask_name](cfg, *args, **kwargs)
 
 
 # Mappings from strings to environments
@@ -99,8 +99,8 @@ isaacgym_task_map = {
     "AllegroHandGraspMulti": AllegroHandGraspMultiTask,
     "ArticulateTask": ArticulateTask,
     "ArticulateTaskCamera": ArticulateTaskCamera,
-    # "AllegroKuka": resolve_allegro_kuka,
-    # "AllegroKukaTwoArms": resolve_allegro_kuka_two_arms,
+    "AllegroKuka": resolve_allegro_kuka,
+    "AllegroKukaTwoArms": resolve_allegro_kuka_two_arms,
     "AllegroHandManualDR": AllegroHandDextremeManualDR,
     "AllegroHandADR": AllegroHandDextremeADR,
     "Ant": Ant,
@@ -113,8 +113,8 @@ isaacgym_task_map = {
     "FactoryTaskNutBoltPick": FactoryTaskNutBoltPick,
     "FactoryTaskNutBoltPlace": FactoryTaskNutBoltPlace,
     "FactoryTaskNutBoltScrew": FactoryTaskNutBoltScrew,
-    # "IndustRealTaskPegsInsert": IndustRealTaskPegsInsert,
-    # "IndustRealTaskGearsInsert": IndustRealTaskGearsInsert,
+    "IndustRealTaskPegsInsert": IndustRealTaskPegsInsert,
+    "IndustRealTaskGearsInsert": IndustRealTaskGearsInsert,
     "FrankaCabinet": FrankaCabinet,
     "FrankaCubeStack": FrankaCubeStack,
     "Humanoid": Humanoid,

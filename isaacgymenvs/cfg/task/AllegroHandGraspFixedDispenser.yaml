@@ -47,15 +47,25 @@ env:
   fallPenalty: 0.0
 
   objectType: "dispenser" # can be block, egg or pen
+<<<<<<< HEAD
   objectDofName: "joint_2"
   objectDofTargetPos: 0.015  # 0.05 for spray_bottle, 0.015 for dispenser
   objectStiffness: 10.
+=======
+  objectDofName: "joint_0"
+  objectDofTargetPos: 0.015  # 0.05 for spray_bottle, 0.015 for dispenser
+  objectStiffness: 3.
+>>>>>>> internal/2024_01_25_dispensers
   objectDamping: 0.5 
   observationType: "full_state" # can be "no_vel", "full_state", "full"
   asymmetric_observations: False
   successTolerance: 0.005
   printNumSuccesses: False
+<<<<<<< HEAD
   maxConsecutiveSuccesses: 10
+=======
+  maxConsecutiveSuccesses: 0
+>>>>>>> internal/2024_01_25_dispensers
 
   asset:
     assetFileName: "urdf/kuka_allegro_description/allegro_grasp_fixed_y.urdf"

@@ -6,4 +6,8 @@ hand_dist:
     - object_pos
     - hand_palm_pos
     - fingertip_pos
+<<<<<<< HEAD
   scale: -10.0
+=======
+  scale: -0.75
+>>>>>>> internal/2024_01_25_dispensers

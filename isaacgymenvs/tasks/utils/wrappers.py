@@ -15,8 +15,9 @@ class IsaacGymCameraBase:
     Must call create_camera_actors() before using
     """
 
-    height = 256
-    width = 256
+    # Robomimic defaults
+    height = 84
+    width = 84
 
     # def __init__(self, camera_spec, cfg_task=None):
     #     self.cfg_task = cfg_task

@@ -1,0 +1,10 @@
+defaults:
+  - ArticulateTaskCamera
+  - _self_
+
+# if given, will override the device setting in gym.
+env:
+  # camera specifications
+  # set to True if you use camera sensors in the environment
+  camera_spec: 
+    hand_camera: ${task.env.cameraSpec.wrist_camera}

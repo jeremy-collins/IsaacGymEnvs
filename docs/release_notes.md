@@ -1,6 +1,26 @@
 Release Notes
 =============
 
+1.5.1
+-----
+* Fix bug in IndustRealSim example - overwrite `generate_ctrl_signals`, `_set_dof_pos_target`, and `_set_dof_torque` in `industreal_base.py` to resolve `fingertip_midpoint` and `fingertip_centered` discrepancy
+
+1.5.0
+-----
+
+* Added [IndustReal](https://sites.google.com/nvidia.com/industreal) environments: IndustRealTaskPegsInsert and IndustRealTaskGearsInsert.
+* Updated hydra version to 1.2.
+
+1.4.0
+-----
+
+* Added [DexPBT](https://sites.google.com/view/dexpbt) (population based training) code and new AllegroKuka and AllegroKukaTwoArms environments.
+* Added multi-node training support.
+* Updated Allegro Hand assets.
+* Fixed AMP save/load weights issue.
+* Migrated Isaac Gym isaacgym.torch_utils to isaacgymenvs.utils.torch_jit_utils.
+* Added record frames feature.
+
 1.3.4
 -----
 
@@ -12,7 +32,7 @@ Release Notes
 -----
 
 * Fixed player and bug with AMP training environments.
-* Added DeXtreme environments with ADR support.
+* Added [DeXtreme](https://dextreme.org/) environments with ADR support.
 
 1.3.2
 -----
