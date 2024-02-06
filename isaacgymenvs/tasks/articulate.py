@@ -560,16 +560,15 @@ class ArticulateTask(VecTask, IsaacGymCameraBase):
 
         self.object_dof_lower_limits = []
         self.object_dof_upper_limits = []
+        self.object_dof_props = []
         for object_file, object_id in zip(object_asset_files, self.env_task_order):
-            object_asset, goal_asset, object_dof_props, object_start_pose = load_object_goal_asset(
-                object_file, object_id
-            )
+            object_asset, goal_asset, object_dof_props = load_object_goal_asset(object_file, object_id)
             self.object_dof_lower_limits.append(object_dof_props["lower"])
             self.object_dof_upper_limits.append(object_dof_props["upper"])
             self.object_assets.append(object_asset)
             self.object_dof_props.append(object_dof_props)
             self.goal_assets.append(goal_asset)
-            self.start_poses.append(object_start_pose)
+            # self.start_poses.append(object_start_pose)
 
         if any([otype in SUPPORTED_PARTNET_OBJECTS for otype in self.object_type]):
             self.object_dof_lower_limits = to_torch(self.object_dof_lower_limits, device=self.device)
@@ -610,8 +609,9 @@ class ArticulateTask(VecTask, IsaacGymCameraBase):
         default_dof_pos = to_torch(allegro_hand_default_pos, device=self.device)
 
         allegro_hand_start_pose = None
-        for object_type, object_asset_file, start_pose in zip(
-            self.env_task_order, object_asset_files, self.start_poses
+        for object_type, object_asset_file in zip(
+            self.env_task_order,
+            object_asset_files,  # self.start_poses
         ):
             object_start_pose = gymapi.Transform()
             object_start_pose.p = gymapi.Vec3()

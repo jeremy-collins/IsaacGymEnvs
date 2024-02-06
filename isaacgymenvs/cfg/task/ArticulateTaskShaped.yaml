@@ -38,30 +38,23 @@ env:
   startPositionNoise: 0.01
   startRotationNoise: 0.0
 
-<<<<<<< HEAD
-  resetPositionNoise: 0.01
-=======
   resetPositionNoise: # 0.01   # x, z dim noise
     range: [0.0, 0.05]
     schedule: "linear" 
     schedule_steps: 300000
     operation: "additive"  # not needed
     distribution: "uniform"  # not needed
->>>>>>> internal/2024_01_25_dispensers
   resetRotationNoise: 0.0
   resetDofPosRandomInterval: 0.2
   resetDofVelRandomInterval: 0.0
 
   # Random forces applied to the object
   forceScale: 0.0
-<<<<<<< HEAD
-=======
     # range: [0.0, 1.0]
     # schedule: "linear" 
     # schedule_steps: 300000
     # operation: "additive"  # not needed
     # distribution: "uniform"  # not needed
->>>>>>> internal/2024_01_25_dispensers
   forceProbRange: [0.001, 0.1]
   forceDecay: 0.99
   forceDecayInterval: 0.08
@@ -94,11 +87,6 @@ env:
   asymmetric_observations: False
   printNumSuccesses: False
   maxConsecutiveSuccesses: 100
-<<<<<<< HEAD
-
-  asset:
-    assetFileName: "urdf/kuka_allegro_description/allegro_grasp.urdf"
-=======
   useOneHot: true
   dict_obs_cls: true
   obsDims: 
@@ -106,7 +94,6 @@ env:
 
   asset:
     assetFileName: "urdf/kuka_allegro_description/allegro_grasp_fixed.urdf" # fixed z-axis
->>>>>>> internal/2024_01_25_dispensers
     assetFileNameBlock: "urdf/objects/cube_multicolor_allegro.urdf"
     assetFileNameEgg: "mjcf/open_ai_assets/hand/egg.xml"
     assetFileNamePen: "mjcf/open_ai_assets/hand/pen.xml"
@@ -116,10 +103,7 @@ env:
       - "urdf/objects/spray_bottle/mobility.urdf"
       - "urdf/objects/spray_bottle2/mobility.urdf"
     assetFileNameDispenser: "urdf/objects/dispenser/mobility.urdf"
-<<<<<<< HEAD
-=======
     assetFileNameScissors: "urdf/objects/scissors/mobility.urdf"
->>>>>>> internal/2024_01_25_dispensers
 
 task:
   randomize: False

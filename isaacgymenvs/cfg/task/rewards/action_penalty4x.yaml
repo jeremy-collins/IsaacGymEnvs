@@ -1,8 +1,4 @@
-<<<<<<< HEAD
-action_penalty:
-=======
 action_penalty4:
->>>>>>> internal/2024_01_25_dispensers
   reward_fn_partial: 
     _partial_: true
     _target_: isaacgymenvs.utils.rewards.action_penalty
