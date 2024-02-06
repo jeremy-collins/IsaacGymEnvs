@@ -999,8 +999,8 @@ class ArticulateTask(VecTask, IsaacGymCameraBase):
             gymtorch.unwrap_tensor(goal_indices),
             len(env_ids),
         )
-        print("set_dof_state_tensor_indexed in reset_target_pose")
         if self.prev_bufs_manip is None:
+            print("set_dof_state_tensor_indexed in reset_target_pose")
             self.gym.set_dof_state_tensor_indexed(
                 self.sim,
                 gymtorch.unwrap_tensor(self.dof_state),
@@ -1008,6 +1008,7 @@ class ArticulateTask(VecTask, IsaacGymCameraBase):
                 len(env_ids),
             )
         else:
+            print("setting prev_dof_state_tensor buffer in reset_target_pose")
             self.prev_bufs_manip["prev_dof_state_tensor"][goal_indices] = gymtorch.wrap_tensor(self.dof_state_tensor)[goal_indices]
 
         # zeroes velocities
@@ -1019,8 +1020,8 @@ class ArticulateTask(VecTask, IsaacGymCameraBase):
 
         if apply_reset:
             goal_object_indices = self.goal_object_indices[env_ids].to(torch.int32)
-            print("set_actor_root_state_tensor in reset_target_pose")
             if self.prev_bufs_manip is None:
+                print("set_actor_root_state_tensor in reset_target_pose")
                 self.gym.set_actor_root_state_tensor_indexed(
                     self.sim,
                     gymtorch.unwrap_tensor(self.root_state_tensor),
@@ -1028,6 +1029,7 @@ class ArticulateTask(VecTask, IsaacGymCameraBase):
                     len(env_ids),
                 )
             else:
+                print("setting prev_actor_root_state_tensor buffer in reset_target_pose")
                 self.prev_bufs_manip["prev_actor_root_state_tensor"][goal_object_indices] = self.root_state_tensor[goal_object_indices]
 
         self.reset_goal_buf[env_ids] = 0
@@ -1107,8 +1109,8 @@ class ArticulateTask(VecTask, IsaacGymCameraBase):
                 self.goal_object_indices[env_ids],
             ]
         object_indices = torch.unique(torch.cat(object_indices).to(torch.int32))
-        print("set_actor_root_state_tensor_indexed in reset_idx")
         if self.prev_bufs_manip is None:
+            print("set_actor_root_state_tensor_indexed in reset_idx")
             self.gym.set_actor_root_state_tensor_indexed(
                 self.sim,
                 gymtorch.unwrap_tensor(self.root_state_tensor),
@@ -1116,6 +1118,7 @@ class ArticulateTask(VecTask, IsaacGymCameraBase):
                 len(object_indices),
             )
         else:
+            print("setting prev_actor_root_state_tensor buffer in reset_idx")
             self.prev_bufs_manip["prev_actor_root_state_tensor"][object_indices] = self.root_state_tensor[object_indices]
 
         # TODO: REMOVE THIS!!!
@@ -1173,8 +1176,8 @@ class ArticulateTask(VecTask, IsaacGymCameraBase):
             len(env_ids),
         )
 
-        print("set_dof_state_tensor in reset_idx")
         if self.prev_bufs_manip is None:
+            print("set_dof_state_tensor in reset_idx")
             self.gym.set_dof_state_tensor_indexed(
                 self.sim,
                 gymtorch.unwrap_tensor(self.dof_state),
@@ -1182,6 +1185,7 @@ class ArticulateTask(VecTask, IsaacGymCameraBase):
                 len(env_ids),
             )
         else:
+            print("setting prev_dof_state_tensor buffer in reset_idx")
             self.prev_bufs_manip["prev_dof_state_tensor"][hand_indices] = gymtorch.wrap_tensor(self.dof_state_tensor)[hand_indices]
 
         self.progress_buf[env_ids] = 0
