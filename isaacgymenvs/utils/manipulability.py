@@ -74,7 +74,7 @@ def manip_step(
         for i in range(manip_substeps):
             # if self.force_render:
             #     self.render()
-            print("simulating (manip_step)")
+            # print("simulating (manip_step)")
             kwargs["gym"].simulate(kwargs["sim"])
 
         # to fix!
@@ -94,7 +94,7 @@ def manip_step(
         # UNROLLING COMPUTE OBSERVATIONS
 
         ############################
-        print("refreshing (manip_step)")
+        # print("refreshing (manip_step)")
         kwargs["gym"].refresh_dof_state_tensor(kwargs["sim"])
         kwargs["gym"].refresh_actor_root_state_tensor(kwargs["sim"])
         kwargs["gym"].refresh_rigid_body_state_tensor(kwargs["sim"])
@@ -265,23 +265,23 @@ def manip_reset(gym, sim, prev_actor_root_state_tensor, prev_dof_state_tensor, p
     # kwargs["gym"].refresh_actor_root_state_tensor(kwargs["sim"])
     # kwargs["gym"].refresh_dof_state_tensor(kwargs["sim"])
     # kwargs["gym"].refresh_rigid_body_state_tensor(kwargs["sim"])
-    print("set_actor_root_state_tensor in manip_reset")
+    # print("set_actor_root_state_tensor in manip_reset")
     gym.set_actor_root_state_tensor(
         sim,
         gymtorch.unwrap_tensor(prev_actor_root_state_tensor)
     )
 
-    print("set_dof_state_tensor in manip_reset")
+    # print("set_dof_state_tensor in manip_reset")
     gym.set_dof_state_tensor(
         sim,
         gymtorch.unwrap_tensor(prev_dof_state_tensor)
     )
 
-    print("set_rigid_body_state_tensor in manip_reset")
-    gym.set_rigid_body_state_tensor( # doesn't work (flex backend only)
-        sim,
-        gymtorch.unwrap_tensor(prev_rigid_body_tensor)
-    )
+    # print("set_rigid_body_state_tensor in manip_reset")
+    # gym.set_rigid_body_state_tensor( # doesn't work (flex backend only)
+    #     sim,
+    #     gymtorch.unwrap_tensor(prev_rigid_body_tensor)
+    # )
 
     # step the physics
     # kwargs["gym"].simulate(kwargs["sim"])

@@ -916,7 +916,7 @@ class ArticulateTask(VecTask, IsaacGymCameraBase):
 
         if apply_reset and self.load_goal_asset:
             goal_object_indices = self.goal_object_indices[env_ids].to(torch.long)
-            print("set_actor_root_state_tensor in reset_target_pose")
+            # print("set_actor_root_state_tensor in reset_target_pose")
             if self.prev_bufs_manip is None:
                 self.gym.set_actor_root_state_tensor_indexed(
                     self.sim,
@@ -1024,8 +1024,8 @@ class ArticulateTask(VecTask, IsaacGymCameraBase):
         self.prev_targets[env_ids, : self.num_shadow_hand_dofs] = pos
         self.cur_targets[env_ids, : self.num_shadow_hand_dofs] = pos
 
-        hand_indices = self.hand_indices[env_ids].to(torch.long)
-        print("set_dof_position_target_tensor_indexed in reset_idx")
+        hand_indices = self.hand_indices[env_ids].to(torch.int32)
+        # print("set_dof_position_target_tensor_indexed in reset_idx")
         self.gym.set_dof_position_target_tensor_indexed(
             self.sim,
             gymtorch.unwrap_tensor(self.prev_targets),
@@ -1033,7 +1033,7 @@ class ArticulateTask(VecTask, IsaacGymCameraBase):
             len(env_ids),
         )
 
-        print("set_dof_state_tensor in reset_idx")
+        # print("set_dof_state_tensor in reset_idx")
         if self.prev_bufs_manip is None:
             self.gym.set_dof_state_tensor_indexed(
                 self.sim,
@@ -1130,7 +1130,7 @@ class ArticulateTask(VecTask, IsaacGymCameraBase):
             )
 
         self.prev_targets[:, self.actuated_dof_indices] = self.cur_targets[:, self.actuated_dof_indices]
-        print("set_dof_position_target_tensor in assign_act")
+        # print("set_dof_position_target_tensor in assign_act")
         self.gym.set_dof_position_target_tensor(self.sim, gymtorch.unwrap_tensor(self.cur_targets))
 
     def post_physics_step(self):
@@ -1351,7 +1351,7 @@ class ArticulateTask(VecTask, IsaacGymCameraBase):
             )
 
     def compute_observations(self, skip_manipulability=False):
-        print("refreshing (compute_observations in post_physics_step)")
+        # print("refreshing (compute_observations in post_physics_step)")
         self.gym.refresh_dof_state_tensor(self.sim)
         self.gym.refresh_actor_root_state_tensor(self.sim)
         self.gym.refresh_rigid_body_state_tensor(self.sim)
@@ -1680,7 +1680,7 @@ class ArticulateTask(VecTask, IsaacGymCameraBase):
         for i in range(self.control_freq_inv):
             if self.force_render:
                 self.render()
-            print("simulating (step)")
+            # print("simulating (step)")
             self.gym.simulate(self.sim)
 
         # to fix!
