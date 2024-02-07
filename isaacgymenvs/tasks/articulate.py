@@ -897,6 +897,8 @@ class ArticulateTask(VecTask, IsaacGymCameraBase):
                 env_ids,
                 self.num_dofs_with_object : self.num_dofs_with_object + self.num_object_dofs,
             ] = object_target_dof
+
+            # TODO: account for when self.prev_bufs_manip is not None, set the tensors without indexed setters
             self.gym.set_dof_position_target_tensor_indexed(
                 self.sim,
                 gymtorch.unwrap_tensor(self.prev_targets),
@@ -993,12 +995,16 @@ class ArticulateTask(VecTask, IsaacGymCameraBase):
                     self.goal_object_indices[goal_env_ids],  # TODO: remove these if goal asset not added
                 ]
         object_indices = torch.unique(torch.cat(object_indices).to(torch.int32))
-        self.gym.set_actor_root_state_tensor_indexed(
-            self.sim,
-            gymtorch.unwrap_tensor(self.root_state_tensor),
-            gymtorch.unwrap_tensor(object_indices),
-            len(object_indices),
-        )
+
+        if self.prev_bufs_manip is None:
+           self.prev_bufs_manip["prev_actor_root_state_tensor"][object_indices] = self.root_state_tensor[object_indices]
+        else:
+            self.gym.set_actor_root_state_tensor_indexed(
+                self.sim,
+                gymtorch.unwrap_tensor(self.root_state_tensor),
+                gymtorch.unwrap_tensor(object_indices),
+                len(object_indices),
+            )
 
         # reset random force probabilities
         self.random_force_prob[env_ids] = torch.exp(
@@ -1025,6 +1031,7 @@ class ArticulateTask(VecTask, IsaacGymCameraBase):
         self.cur_targets[env_ids, : self.num_shadow_hand_dofs] = pos
 
         hand_indices = self.hand_indices[env_ids].to(torch.int32)
+
         # print("set_dof_position_target_tensor_indexed in reset_idx")
         self.gym.set_dof_position_target_tensor_indexed(
             self.sim,
@@ -1032,9 +1039,9 @@ class ArticulateTask(VecTask, IsaacGymCameraBase):
             gymtorch.unwrap_tensor(hand_indices),
             len(env_ids),
         )
-
-        # print("set_dof_state_tensor in reset_idx")
+        
         if self.prev_bufs_manip is None:
+            # print("set_dof_state_tensor_indexed in reset_idx")
             self.gym.set_dof_state_tensor_indexed(
                 self.sim,
                 gymtorch.unwrap_tensor(self.dof_state),
@@ -1042,9 +1049,12 @@ class ArticulateTask(VecTask, IsaacGymCameraBase):
                 len(env_ids),
             )
         else:
-            self.prev_bufs_manip["prev_dof_state_tensor"][hand_indices] = gymtorch.wrap_tensor(self.dof_state_tensor)[
+            self.prev_bufs_manip["prev_dof_state_tensor"][hand_indices] = self.dof_state[
                 hand_indices
             ]
+            # self.prev_bufs_manip["prev_dof_position_target_tensor"][hand_indices] = self.prev_targets[
+            # hand_indices
+            # ]
 
         self.progress_buf[env_ids] = 0
         self.reset_buf[env_ids] = 0
