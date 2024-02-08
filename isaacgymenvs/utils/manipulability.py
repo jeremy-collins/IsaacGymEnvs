@@ -242,7 +242,7 @@ def manip_step(
         #     if key in obs_dict:
         #         self.obs_dict[key][:] = obs_dict[key]
 
-        obs_tensor = obs_dict_to_tensor(obs_dict, kwargs["obs_keys"], kwargs["num_envs"])
+        obs_tensor = obs_dict_to_tensor(obs_dict, kwargs["obs_keys"], kwargs["num_envs"], kwargs["device"])
         # check obs shape
         assert (
             obs_tensor.shape[-1] == kwargs["num_obs_dict"][kwargs["obs_type"]]
@@ -261,21 +261,18 @@ def manip_step(
             None # self.extras,
         )
 
-def manip_reset(gym, sim, prev_actor_root_state_tensor, prev_dof_state_tensor, prev_rigid_body_tensor):
-    # kwargs["gym"].refresh_actor_root_state_tensor(kwargs["sim"])
-    # kwargs["gym"].refresh_dof_state_tensor(kwargs["sim"])
-    # kwargs["gym"].refresh_rigid_body_state_tensor(kwargs["sim"])
-    # print("set_actor_root_state_tensor in manip_reset")
-    gym.set_actor_root_state_tensor(
+def manip_reset(gym, sim, prev_actor_root_state_tensor, prev_dof_state_tensor, prev_rigid_body_tensor, prev_targets):
+    result = gym.set_actor_root_state_tensor(
         sim,
         gymtorch.unwrap_tensor(prev_actor_root_state_tensor)
     )
+    # print("set_actor_root_state_tensor in manip_reset with result", result)
 
-    # print("set_dof_state_tensor in manip_reset")
-    gym.set_dof_state_tensor(
+    result = gym.set_dof_state_tensor(
         sim,
         gymtorch.unwrap_tensor(prev_dof_state_tensor)
     )
+    # print("set_dof_state_tensor in manip_reset with result", result)
 
     # print("set_rigid_body_state_tensor in manip_reset")
     # gym.set_rigid_body_state_tensor( # doesn't work (flex backend only)
@@ -283,12 +280,12 @@ def manip_reset(gym, sim, prev_actor_root_state_tensor, prev_dof_state_tensor, p
     #     gymtorch.unwrap_tensor(prev_rigid_body_tensor)
     # )
 
-    # step the physics
-    # kwargs["gym"].simulate(kwargs["sim"])
-    # kwargs["gym"].fetch_results(kwargs["sim"], True)
+    result = gym.set_dof_position_target_tensor(
+        sim,
+        gymtorch.unwrap_tensor(prev_targets),
+    )
+    # print("set_dof_position_target_tensor in manip_reset with result", result)
 
-
-# def get_manipulability_fd(f, obs_dict, obs_keys, action, eps=1e-2):
 def get_manipulability_fd(kwargs):
         ''' Compute the finite difference jacobian to compute manipulability
 
@@ -306,7 +303,7 @@ def get_manipulability_fd(kwargs):
         "prev_rigid_body_tensor": kwargs["rigid_body_states"].clone(),
         }
 
-        obs = obs_dict_to_tensor(kwargs["obs_dict"], kwargs["obs_keys_manip"], kwargs["num_envs"])
+        obs = obs_dict_to_tensor(kwargs["obs_dict"], kwargs["obs_keys_manip"], kwargs["num_envs"], kwargs["device"])
         bs = kwargs["actions"].shape[0]
         input_dim = kwargs["actions"].shape[1]
         output_dim = obs.shape[1]
@@ -321,15 +318,14 @@ def get_manipulability_fd(kwargs):
             obs_dict_2, _, _, _ = kwargs["f"](kwargs)
             kwargs["actions"][:, i] += kwargs["eps"] # set the input back to initial value
 
-            next_state_1 = obs_dict_to_tensor(obs_dict_1, kwargs["obs_keys_manip"], kwargs["num_envs"])
-            next_state_2 = obs_dict_to_tensor(obs_dict_2, kwargs["obs_keys_manip"], kwargs["num_envs"])
+            next_state_1 = obs_dict_to_tensor(obs_dict_1, kwargs["obs_keys_manip"], kwargs["num_envs"], kwargs["device"])
+            next_state_2 = obs_dict_to_tensor(obs_dict_2, kwargs["obs_keys_manip"], kwargs["num_envs"], kwargs["device"])
 
             # doutput/dinput
             manipulability_fd[:, :, i] = (next_state_1 - next_state_2) / (2 * kwargs["eps"]) # each col = doutput[:]/dinput[i]
 
         return manipulability_fd, prev_bufs_manip
 
-# def get_manipulability_fd_parallel_actions(f, obs_dict, obs_keys, action, eps=1e-2):
 def get_manipulability_fd_parallel_actions(kwargs):
     '''
     Calculates finite difference manipulability by perturbing each action dimension separately across parallel environments.
@@ -341,34 +337,38 @@ def get_manipulability_fd_parallel_actions(kwargs):
         eps: finite difference step
     '''
 
-    prev_bufs_manip = {
-        "prev_actor_root_state_tensor": kwargs["root_state_tensor"].clone(),
-        "prev_dof_state_tensor": kwargs["dof_state_tensor"].clone(),
-        "prev_rigid_body_tensor": kwargs["rigid_body_states"].clone(),
-    }
+    # prev_bufs_manip = {
+    #     "prev_actor_root_state_tensor": kwargs["root_state_tensor"].clone(),
+    #     "prev_dof_state_tensor": kwargs["dof_state_tensor"].clone(),
+    #     "prev_rigid_body_tensor": kwargs["rigid_body_states"].clone(),
+    # }
 
-    obs = obs_dict_to_tensor(kwargs["obs_dict"], kwargs["obs_keys_manip"], kwargs["num_envs"])
+    obs = obs_dict_to_tensor(kwargs["obs_dict"], kwargs["obs_keys_manip"], kwargs["num_envs"], kwargs["device"])
     bs = kwargs["actions"].shape[0]
     input_dim = kwargs["actions"].shape[1]
     output_dim = obs.shape[1]
     # manipulability_fd = torch.empty((bs, output_dim, input_dim), dtype=torch.float64, device=self.device) # TODO: allocate outside of this function
 
-    assert bs % (2 * input_dim) == 0, "the number of environments must be divisible by 2 * input dim for vectorized finite difference manipulability calculation"
+    assert bs % (input_dim * 2) == 0, "the number of environments must be divisible by 2 * input dim for vectorized finite difference manipulability calculation"
     
     num_manips = bs // (input_dim * 2)
 
-    # # copying states so we can compute manipulability in parallel
-    # actor_root_state_tensor_rows = actor_root_state_buffer.view(bs, 3, 13)[0::input_dim] # (num_manips, 3, 13) select every input_dim-th row
-    # initial_actor_root_state_tensor_copied_rows = actor_root_state_tensor_rows.repeat_interleave(input_dim, dim=0) # (num_manips*input_dim, 3, 13) copy each row input_dim times
-    # initial_actor_root_state_tensor_copied = initial_actor_root_state_tensor_copied_rows.view(-1, 13) # (num_manips*input_dim*3, 13) reshape to original shape
+    # copying states so we can compute manipulability in parallel
+    actor_root_state_tensor_rows = kwargs["root_state_tensor"].view(bs, 2, 13)[0::(input_dim * 2)] # (num_manips, 2, 13) select every (input_dim*2)-th row
+    initial_actor_root_state_tensor_copied_rows = actor_root_state_tensor_rows.repeat_interleave((input_dim * 2), dim=0) # (num_manips*input_dim*2, 2, 13) copy each row input_dim times
+    initial_actor_root_state_tensor_copied = initial_actor_root_state_tensor_copied_rows.view(-1, 13) # (num_manips*input_dim*2, 13) reshape to original shape
 
-    # dof_state_tensor_rows = dof_state_buffer.view(bs, 24, 2)[0::input_dim] # (num_manips, 24, 2) # select every input_dim-th row
-    # initial_dof_state_tensor_copied_rows = dof_state_tensor_rows.repeat_interleave(input_dim, dim=0) # (num_manips*input_dim, 24, 2) copy each row input_dim times
-    # initial_dof_state_tensor_copied = initial_dof_state_tensor_copied_rows.view(-1, 2) # (num_manips*input_dim*24, 2) reshape to original shape
+    dof_state_tensor_rows = kwargs["dof_state_tensor"].view(bs, 23, 2)[0::(input_dim * 2)] # (num_manips, 23, 2) # select every (input_dim*2)-th row
+    initial_dof_state_tensor_copied_rows = dof_state_tensor_rows.repeat_interleave((input_dim * 2), dim=0) # (num_manips*input_dim, 24, 2) copy each row input_dim times
+    initial_dof_state_tensor_copied = initial_dof_state_tensor_copied_rows.view(-1, 2) # (num_manips*input_dim*24, 2) reshape to original shape
 
-    # rigid_body_tensor_rows = rigid_body_state_buffer.view(bs, 37, 13)[0::input_dim] # (num_manips, 37, 13) # select every input_dim-th row
-    # initial_rigid_body_tensor_copied_rows = rigid_body_tensor_rows.repeat_interleave(input_dim, dim=0) # (num_manips*input_dim, 37, 13) copy each row input_dim times
-    # initial_rigid_body_tensor_copied = initial_rigid_body_tensor_copied_rows.view(-1, 37, 13) # (num_manips*input_dim*37, 13) reshape to original shape
+    rigid_body_tensor_rows = kwargs["rigid_body_states"].view(bs, 30, 13)[0::(input_dim * 2)] # (num_manips, 30, 13) # select every input_dim-th row
+    initial_rigid_body_tensor_copied_rows = rigid_body_tensor_rows.repeat_interleave((input_dim * 2), dim=0) # (num_manips*input_dim, 30, 13) copy each row input_dim times
+    initial_rigid_body_tensor_copied = initial_rigid_body_tensor_copied_rows.view(-1, 30, 13) # (num_manips*input_dim, 30, 13) reshape to original shape
+
+    prev_target_tensor_rows = kwargs["prev_targets"].view(bs, 23)[0::(input_dim * 2)] # (num_manips, 23) # select every input_dim-th row
+    initial_prev_target_tensor_copied_rows = prev_target_tensor_rows.repeat_interleave((input_dim * 2), dim=0) # (num_manips*input_dim, 24) copy each row input_dim times
+    initial_prev_target_tensor_copied = initial_prev_target_tensor_copied_rows.view(-1, 23) # (num_manips*input_dim, 23) reshape to original shape
 
     # eye with adjacent rows having opposite signs ([1, 0, 0], [-1, 0, 0], [0, 1, 0], [0, -1, 0], ...)
     eps_parallel = torch.eye(input_dim, device=kwargs["device"]).repeat(num_manips, 1).repeat_interleave(2, dim=0) * kwargs["eps"]  # (num_manips*input_dim*2, input_dim)
@@ -378,7 +378,7 @@ def get_manipulability_fd_parallel_actions(kwargs):
 
     obs_dict_1, _, _, _ = kwargs["f"](kwargs)
 
-    states = obs_dict_to_tensor(obs_dict_1, kwargs["obs_keys_manip"], kwargs["num_envs"]) # (num_manips*input_dim*2, output_dim)
+    states = obs_dict_to_tensor(obs_dict_1, kwargs["obs_keys_manip"], kwargs["num_envs"], kwargs["device"]) # (num_manips*input_dim*2, output_dim)
 
     next_state_1 = states[0::2] # (num_manips*input_dim, output_dim) # even rows
     next_state_2 = states[1::2] # (num_manips*input_dim, output_dim) # odd rows
@@ -386,7 +386,12 @@ def get_manipulability_fd_parallel_actions(kwargs):
     # doutput/dinput
     manipulability_fd = (next_state_1 - next_state_2) / (2 * kwargs["eps"]) # (num_manips*input_dim, output_dim)
 
-    # manip_reset(kwargs["gym"], kwargs["sim"], actor_root_state_buffer, dof_state_buffer, rigid_body_state_buffer)
+    prev_bufs_manip = {
+        "prev_actor_root_state_tensor": initial_actor_root_state_tensor_copied.clone(),
+        "prev_dof_state_tensor": initial_dof_state_tensor_copied.clone(),
+        "prev_rigid_body_tensor": initial_rigid_body_tensor_copied.clone(),
+        "prev_targets": initial_prev_target_tensor_copied.clone()
+    }
 
     return manipulability_fd, prev_bufs_manip
 
@@ -402,27 +407,17 @@ def get_manipulability_fd_rand_vec(kwargs):
         eps: finite difference step
     '''
 
+    # These tensors are refreshed in compute_observations(), so they don't need updating beforehand
     prev_bufs_manip = {
         "prev_actor_root_state_tensor": kwargs["root_state_tensor"].clone(),
         "prev_dof_state_tensor": kwargs["dof_state_tensor"].clone(),
         "prev_rigid_body_tensor": kwargs["rigid_body_states"].clone(),
     }
 
-    # TODO: torch -> numpy (.cpu().numpy()) -> torch -> isaacgym. don't call wrap_tensor, use self.actor_root_state etc
-    # These tensors are updated in compute_observations(), so they don't need updating beforehand
-    actor_root_state_buffer = kwargs["root_state_tensor"].clone()
-    dof_state_buffer = kwargs["dof_state"].clone()
-    rigid_body_state_buffer = kwargs["rigid_body_states"].clone()
-
-    obs = obs_dict_to_tensor(kwargs["obs_dict"], kwargs["obs_keys_manip"], kwargs["num_envs"])
+    obs = obs_dict_to_tensor(kwargs["obs_dict"], kwargs["obs_keys_manip"], kwargs["num_envs"], kwargs["device"])
     bs = kwargs["actions"].shape[0]
     input_dim = kwargs["actions"].shape[1]
     output_dim = obs.shape[1]
-    # manipulability_fd = torch.empty((bs, output_dim, input_dim), dtype=torch.float64, device=self.device) # TODO: allocate outside of this function
-
-    # zero_prob = 0.5
-    # rand = torch.rand((bs, input_dim), device=kwargs["device"])
-    # eps_parallel = (rand > zero_prob).int() * eps
 
     # making eps parallel a random unit vector for each row
     rand = torch.randn((bs, input_dim), device=kwargs["device"])
@@ -437,8 +432,8 @@ def get_manipulability_fd_rand_vec(kwargs):
     obs_dict_2, _, _, _ = kwargs["f"](kwargs)
     kwargs["actions"] += eps_parallel # set the input back to initial value
 
-    next_state_1 = obs_dict_to_tensor(obs_dict_1, kwargs["obs_keys_manip"], kwargs["num_envs"]) # (num_manips*input_dim, output_dim)
-    next_state_2 = obs_dict_to_tensor(obs_dict_2, kwargs["obs_keys_manip"], kwargs["num_envs"]) # (num_manips*input_dim, output_dim)
+    next_state_1 = obs_dict_to_tensor(obs_dict_1, kwargs["obs_keys_manip"], kwargs["num_envs"], kwargs["device"]) # (num_manips*input_dim, output_dim)
+    next_state_2 = obs_dict_to_tensor(obs_dict_2, kwargs["obs_keys_manip"], kwargs["num_envs"], kwargs["device"]) # (num_manips*input_dim, output_dim)
 
     # doutput/dinput
     manipulability_fd = (next_state_1 - next_state_2) / (2 * kwargs["eps"]) # (num_manips*input_dim, output_dim)

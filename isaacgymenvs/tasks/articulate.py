@@ -302,7 +302,8 @@ class ArticulateTask(VecTask, IsaacGymCameraBase):
         if self.cfg["env"].get("loadRigidBodyState", False):
             assert self.device == "cpu", "saveRigidBodyState only works with CPU tensors!"
             initial_state = np.load("initial_state.npy")
-            self.gym.set_sim_rigid_body_states(self.sim, initial_state, gymapi.STATE_ALL)
+            result = self.gym.set_sim_rigid_body_states(self.sim, initial_state, gymapi.STATE_ALL)
+            # print("set_sim_rigid_body_states in init_sim with result: ", result)
             self.gym.simulate(self.sim)
 
         if self.obs_type == "full_state" or self.asymmetric_obs:
@@ -742,9 +743,10 @@ class ArticulateTask(VecTask, IsaacGymCameraBase):
                     0,
                 ]
             )
-            self.gym.set_actor_dof_properties(env_ptr, shadow_hand_actor, shadow_hand_dof_props)
+            result = self.gym.set_actor_dof_properties(env_ptr, shadow_hand_actor, shadow_hand_dof_props)
+            # print("set_actor_dof_properties in load_object_goal_asset with result: ", result)
             hand_idx = self.gym.get_actor_index(env_ptr, shadow_hand_actor, gymapi.DOMAIN_SIM)
-            self.hand_indices.append(hand_idx)
+            self.hand_indices.append(hand_idx // 2) # TODO: fix this hack, hand_idx is 2x the actual index, creating an out of range error
             self.palm_index = self.gym.find_asset_rigid_body_index(allegro_hand_asset, "palm_link")
 
             # create fingertip force-torque sensors
@@ -758,7 +760,8 @@ class ArticulateTask(VecTask, IsaacGymCameraBase):
 
             # add object
             object_handle = self.gym.create_actor(env_ptr, object_asset, object_start_pose, "object", i, 0, 1)
-            self.gym.set_actor_dof_properties(env_ptr, object_handle, object_dof_props)
+            result = self.gym.set_actor_dof_properties(env_ptr, object_handle, object_dof_props)
+            # print("set_actor_dof_properties in load_object_goal_asset with result: ", result)
             self.object_actor_handles.append(object_handle)
             rb_props = self.gym.get_actor_rigid_body_properties(env_ptr, object_handle)
             if self.object_mass_base_only:
@@ -899,18 +902,22 @@ class ArticulateTask(VecTask, IsaacGymCameraBase):
             ] = object_target_dof
 
             # TODO: account for when self.prev_bufs_manip is not None, set the tensors without indexed setters
-            self.gym.set_dof_position_target_tensor_indexed(
+            result = self.gym.set_dof_position_target_tensor_indexed(
                 self.sim,
                 gymtorch.unwrap_tensor(self.prev_targets),
                 gymtorch.unwrap_tensor(goal_indices),
                 len(env_ids),
             )
-            self.gym.set_dof_state_tensor_indexed(
+            # print("set_dof_position_target_tensor_indexed in reset_target_pose with result: ", result)
+
+            result = self.gym.set_dof_state_tensor_indexed(
                 self.sim,
                 gymtorch.unwrap_tensor(self.dof_state),
                 gymtorch.unwrap_tensor(goal_indices),
                 len(env_ids),
             )
+            # print("set_dof_state_tensor_indexed in reset_target_pose with result: ", result)
+                  
             # zeroes velocities
             self.root_state_tensor[self.goal_object_indices[env_ids], 7:13] = torch.zeros_like(
                 self.root_state_tensor[self.goal_object_indices[env_ids], 7:13]
@@ -918,14 +925,15 @@ class ArticulateTask(VecTask, IsaacGymCameraBase):
 
         if apply_reset and self.load_goal_asset:
             goal_object_indices = self.goal_object_indices[env_ids].to(torch.long)
-            # print("set_actor_root_state_tensor in reset_target_pose")
+            # # print("set_actor_root_state_tensor in reset_target_pose")
             if self.prev_bufs_manip is None:
-                self.gym.set_actor_root_state_tensor_indexed(
+                result = self.gym.set_actor_root_state_tensor_indexed(
                     self.sim,
                     gymtorch.unwrap_tensor(self.root_state_tensor),
                     gymtorch.unwrap_tensor(goal_object_indices),
                     len(env_ids),
                 )
+                # print("set_actor_root_state_tensor_indexed in reset_target_pose with result: ", result)
             else:
                 self.prev_bufs_manip["prev_actor_root_state_tensor"][goal_object_indices] = self.root_state_tensor[
                     goal_object_indices
@@ -997,14 +1005,15 @@ class ArticulateTask(VecTask, IsaacGymCameraBase):
         object_indices = torch.unique(torch.cat(object_indices).to(torch.int32))
 
         if self.prev_bufs_manip is None:
-           self.prev_bufs_manip["prev_actor_root_state_tensor"][object_indices] = self.root_state_tensor[object_indices]
-        else:
-            self.gym.set_actor_root_state_tensor_indexed(
+            result = self.gym.set_actor_root_state_tensor_indexed(
                 self.sim,
                 gymtorch.unwrap_tensor(self.root_state_tensor),
                 gymtorch.unwrap_tensor(object_indices),
                 len(object_indices),
             )
+            # print("set_actor_root_state_tensor_indexed in reset_idx with result: ", result)
+        else:
+            self.prev_bufs_manip["prev_actor_root_state_tensor"][object_indices] = self.root_state_tensor[object_indices]
 
         # reset random force probabilities
         self.random_force_prob[env_ids] = torch.exp(
@@ -1032,29 +1041,26 @@ class ArticulateTask(VecTask, IsaacGymCameraBase):
 
         hand_indices = self.hand_indices[env_ids].to(torch.int32)
 
-        # print("set_dof_position_target_tensor_indexed in reset_idx")
-        self.gym.set_dof_position_target_tensor_indexed(
-            self.sim,
-            gymtorch.unwrap_tensor(self.prev_targets),
-            gymtorch.unwrap_tensor(hand_indices),
-            len(env_ids),
-        )
-        
         if self.prev_bufs_manip is None:
-            # print("set_dof_state_tensor_indexed in reset_idx")
-            self.gym.set_dof_state_tensor_indexed(
+            result = self.gym.set_dof_state_tensor_indexed(
                 self.sim,
                 gymtorch.unwrap_tensor(self.dof_state),
                 gymtorch.unwrap_tensor(hand_indices),
                 len(env_ids),
             )
+            # print("set_dof_state_tensor_indexed in reset_idx")
+
+            result = self.gym.set_dof_position_target_tensor_indexed(
+                self.sim,
+                gymtorch.unwrap_tensor(self.prev_targets),
+                gymtorch.unwrap_tensor(hand_indices),
+                len(env_ids),
+            )
+            # print("set_dof_position_target_tensor_indexed in reset_idx")
+
         else:
-            self.prev_bufs_manip["prev_dof_state_tensor"][hand_indices] = self.dof_state[
-                hand_indices
-            ]
-            # self.prev_bufs_manip["prev_dof_position_target_tensor"][hand_indices] = self.prev_targets[
-            # hand_indices
-            # ]
+            self.prev_bufs_manip["prev_dof_state_tensor"][hand_indices] = self.dof_state[hand_indices]
+            self.prev_bufs_manip["prev_targets"][hand_indices] = self.prev_targets[hand_indices]
 
         self.progress_buf[env_ids] = 0
         self.reset_buf[env_ids] = 0
@@ -1083,11 +1089,11 @@ class ArticulateTask(VecTask, IsaacGymCameraBase):
         if len(env_ids) > 0:
             self.reset_idx(env_ids, goal_env_ids)
 
-        if self.prev_bufs_manip is not None:
-            manip_reset(self.gym, self.sim, **self.prev_bufs_manip)
-
         self.actions = actions.clone().to(self.device)
         self.assign_act(self.actions)
+
+        if self.prev_bufs_manip is not None:
+            manip_reset(self.gym, self.sim, **self.prev_bufs_manip)
 
         # get rb forces
         force_noise_scale = self.get_or_sample_noise_scale(self.force_scale)
@@ -1140,8 +1146,12 @@ class ArticulateTask(VecTask, IsaacGymCameraBase):
             )
 
         self.prev_targets[:, self.actuated_dof_indices] = self.cur_targets[:, self.actuated_dof_indices]
-        # print("set_dof_position_target_tensor in assign_act")
-        self.gym.set_dof_position_target_tensor(self.sim, gymtorch.unwrap_tensor(self.cur_targets))
+
+        if self.prev_bufs_manip is None:
+            result = self.gym.set_dof_position_target_tensor(self.sim, gymtorch.unwrap_tensor(self.cur_targets))
+            # print("set_dof_position_target_tensor in assign_act with result: ", result)
+        else:
+            self.prev_bufs_manip["prev_targets"] = self.cur_targets
 
     def post_physics_step(self):
         self.progress_buf += 1
@@ -1403,11 +1413,14 @@ class ArticulateTask(VecTask, IsaacGymCameraBase):
                 self.object_target_dof_pos.unsqueeze(0)
                 .repeat(self.num_envs // len(self.object_target_dof_pos), 1)
                 .unsqueeze(-1)
+                .to(self.device)
             )
         else:
-            object_target_dof = self.object_target_dof_pos * torch.ones_like(obs_dict["object_dof_pos"])
+            object_target_dof = self.object_target_dof_pos * torch.ones_like(obs_dict["object_dof_pos"], device=self.device)
 
         obs_dict["goal_dof_pos"] = object_target_dof.view(self.num_envs, -1)
+        # printing devices
+            
         obs_dict["goal_dof_pos_scaled"] = unscale(
             obs_dict["goal_dof_pos"].view(self.num_envs // self.num_objects, self.num_objects, -1),
             self.object_dof_lower_limits,
@@ -1496,44 +1509,44 @@ class ArticulateTask(VecTask, IsaacGymCameraBase):
                 "device": str(self.device),
                 "clip_actions": float(self.clip_actions),
                 "num_envs": int(self.num_envs),
-                "shadow_hand_dof_pos": self.shadow_hand_dof_pos.clone(),
-                "shadow_hand_dof_vel": self.shadow_hand_dof_vel.clone(),
-                "shadow_hand_dof_lower_limits": self.shadow_hand_dof_lower_limits.clone(),
-                "shadow_hand_dof_upper_limits": self.shadow_hand_dof_upper_limits.clone(),
+                "shadow_hand_dof_pos": self.shadow_hand_dof_pos.clone().to(self.device),
+                "shadow_hand_dof_vel": self.shadow_hand_dof_vel.clone().to(self.device),
+                "shadow_hand_dof_lower_limits": self.shadow_hand_dof_lower_limits.clone().to(self.device),
+                "shadow_hand_dof_upper_limits": self.shadow_hand_dof_upper_limits.clone().to(self.device),
                 "shadow_hand_dof_speed_scale": float(self.shadow_hand_dof_speed_scale),
-                "object_indices": self.object_indices.clone(),
-                "hand_indices": self.hand_indices.clone(),
+                "object_indices": self.object_indices.clone().to(self.device),
+                "hand_indices": self.hand_indices.clone().to(self.device),
                 "palm_index": int(self.palm_index),
-                "fingertip_indices": self.fingertip_indices.clone(),
-                "root_state_tensor": self.root_state_tensor.clone(),
-                "dof_state_tensor": self.dof_state.clone(),
-                "rigid_body_states": self.rigid_body_states.clone(),
-                "object_dof_pos": self.object_dof_pos.clone(),
-                "object_dof_lower_limits": self.object_dof_lower_limits.clone(),
-                "object_dof_upper_limits": self.object_dof_upper_limits.clone(),
-                "object_target_dof_pos": self.object_target_dof_pos.clone(),
+                "fingertip_indices": self.fingertip_indices.clone().to(self.device),
+                "root_state_tensor": self.root_state_tensor.clone().to(self.device),
+                "dof_state_tensor": self.dof_state.clone().to(self.device),
+                "rigid_body_states": self.rigid_body_states.clone().to(self.device),
+                "object_dof_pos": self.object_dof_pos.clone().to(self.device),
+                "object_dof_lower_limits": self.object_dof_lower_limits.clone().to(self.device),
+                "object_dof_upper_limits": self.object_dof_upper_limits.clone().to(self.device),
+                "object_target_dof_pos": self.object_target_dof_pos.clone().to(self.device),
                 "scale_dof_pos": bool(self.scale_dof_pos),
                 "object_target_dof_idx": list(self.object_target_dof_idx),
                 "vel_obs_scale": float(self.vel_obs_scale),
                 "num_objects": int(self.num_objects),
                 "env_num_bodies": int(self.env_num_bodies),
-                "goal_states": self.goal_states.clone(),
-                "hand_init_pos": self.hand_init_pos.clone(),
-                "hand_init_quat": self.hand_init_quat.clone(),
-                "actuated_dof_indices": self.actuated_dof_indices.clone(),
-                "prev_targets": self.prev_targets.clone(),
+                "goal_states": self.goal_states.clone().to(self.device),
+                "hand_init_pos": self.hand_init_pos.clone().to(self.device),
+                "hand_init_quat": self.hand_init_quat.clone().to(self.device),
+                "actuated_dof_indices": self.actuated_dof_indices.clone().to(self.device),
+                "prev_targets": self.prev_targets.clone().to(self.device),
                 "obs_keys": list(self.obs_keys),
                 "obs_dict": dict(obs_dict),
-                "obs_buf": self.obs_buf.clone(),
+                "obs_buf": self.obs_buf.clone().to(self.device),
                 "current_obs_dict": dict(obs_dict),
                 "max_obj_instances": int(self.max_obj_instances),
                 "object_type": list(self.object_type),
                 "env_instance_order": list(self.env_instance_order),
                 "SUPPORTED_PARTNET_OBJECTS": list(SUPPORTED_PARTNET_OBJECTS),
                 "use_relative_control": bool(self.use_relative_control),
-                "actuated_dof_indices": self.actuated_dof_indices.clone(),
+                "actuated_dof_indices": self.actuated_dof_indices.clone().to(self.device),
                 "dt": float(self.dt),
-                "cur_targets": self.cur_targets.clone(),
+                "cur_targets": self.cur_targets.clone().to(self.device),
                 "object_instance": dict(self.object_instance),
                 "asset_files_dict": dict(self.asset_files_dict),
                 "num_obs_dict": dict(self.num_obs_dict),
@@ -1557,23 +1570,23 @@ class ArticulateTask(VecTask, IsaacGymCameraBase):
             else:
                 raise NotImplementedError
 
-            # checking that self.prev_bufs_manip matches what we copied in manip_args
-            assert torch.allclose(
-                self.prev_bufs_manip["prev_actor_root_state_tensor"], manip_args["root_state_tensor"]
-            ), "root_state_tensor is wrong!"
-            assert torch.allclose(
-                self.prev_bufs_manip["prev_dof_state_tensor"], manip_args["dof_state_tensor"]
-            ), "dof_state is wrong!"
-            assert torch.allclose(
-                self.prev_bufs_manip["prev_rigid_body_tensor"], manip_args["rigid_body_states"]
-            ), "rigid_body_states is wrong!"
+            # # checking that self.prev_bufs_manip matches what we copied in manip_args
+            # assert torch.allclose(
+            #     self.prev_bufs_manip["prev_actor_root_state_tensor"], manip_args["root_state_tensor"]
+            # ), "root_state_tensor is wrong!"
+            # assert torch.allclose(
+            #     self.prev_bufs_manip["prev_dof_state_tensor"], manip_args["dof_state_tensor"]
+            # ), "dof_state is wrong!"
+            # assert torch.allclose(
+            #     self.prev_bufs_manip["prev_rigid_body_tensor"], manip_args["rigid_body_states"]
+            # ), "rigid_body_states is wrong!"
 
         self.current_obs_dict = obs_dict
         if not self.use_dict_obs:
             # for key in self.obs_keys:
             #     if key in obs_dict:
             #         self.obs_dict[key][:] = obs_dict[key]
-            obs_tensor = self.obs_dict_to_tensor(obs_dict, self.obs_keys)
+            obs_tensor = obs_dict_to_tensor(obs_dict, self.obs_keys, self.num_envs, self.device)
             # check obs shape
             assert (
                 obs_tensor.shape[-1] == self.num_obs_dict[self.obs_type]
@@ -1581,13 +1594,6 @@ class ArticulateTask(VecTask, IsaacGymCameraBase):
             self.obs_buf[:] = obs_tensor
         if self.use_image_obs:
             IsaacGymCameraBase.compute_observations(self)
-
-    def obs_dict_to_tensor(self, obs_dict, obs_keys):
-        obs = []
-        for key in obs_keys:
-            obs.append(obs_dict[key].view(self.num_envs, -1))
-        obs_tensor = torch.cat(obs, dim=-1)
-        return obs_tensor
 
     def get_default_camera_specs(self):
         camera_specs = self.cfg["env"].get("camera_spec", {"hand_camera": dict(width=64, height=64)})
@@ -1612,13 +1618,12 @@ class ArticulateTask(VecTask, IsaacGymCameraBase):
                 "camera_pose": camera_spec.get("camera_pose", [[0.0, -0.35, 0.2], [0.0, 0.0, 0.85090352, 0.52532199]]),
             }
             self.camera_spec_dict[k] = OmegaConf.create(camera_config)
-
         self.current_obs_dict = obs_dict
         if not self.use_dict_obs:
             # for key in self.obs_keys:
             #     if key in obs_dict:
             #         self.obs_dict[key][:] = obs_dict[key]
-            obs_tensor = self.obs_dict_to_tensor(obs_dict, self.obs_keys)
+            obs_tensor = obs_dict_to_tensor(obs_dict, self.obs_keys, self.num_envs, self.device)
             # check obs shape
             assert (
                 obs_tensor.shape[-1] == self.num_obs_dict[self.obs_type]
@@ -1626,13 +1631,6 @@ class ArticulateTask(VecTask, IsaacGymCameraBase):
             self.obs_buf[:] = obs_tensor
         if self.use_image_obs:
             IsaacGymCameraBase.compute_observations(self)
-
-    def obs_dict_to_tensor(self, obs_dict, obs_keys):
-        obs = []
-        for key in obs_keys:
-            obs.append(obs_dict[key].view(self.num_envs, -1))
-        obs_tensor = torch.cat(obs, dim=-1)
-        return obs_tensor
 
     def get_default_camera_specs(self):
         camera_specs = self.cfg["env"].get("camera_spec", {"hand_camera": dict(width=64, height=64)})

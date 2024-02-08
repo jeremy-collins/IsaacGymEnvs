@@ -106,11 +106,13 @@ def manipulability_goal_cond(manipulability, object_pose, goal_pose):
 def manipulability_frobenius_norm_vectorized(manipulability, object_pose, goal_pose, actions):
     # returns the frobenius norm of the manipulability matrix. The first dimension is the batch dimension
     # manipulability has shape (bs, output_dim) = (num_manips*input_dim, output_dim)
+    # TODO: replace object pose with the observations we're using for manipulability
 
     input_dim = actions.shape[-1]
     output_dim = object_pose.shape[-1]
     # (num_manips*input_dim, output_dim) -> (num_manips, output_dim, input_dim)
     manipulability_grouped = manipulability.reshape(-1, input_dim, output_dim).transpose(1, 2)
+    # print('manipulability_grouped', manipulability_grouped)
 
     norms = torch.linalg.norm(manipulability_grouped, dim=(-2, -1), ord="fro")  # (num_manips)
 
@@ -125,7 +127,6 @@ def manipulability_l2_norm_rand_vec(manipulability):
     # manipulability has shape (bs, output_dim). Note that the number of rows is no longer related to the input dim
 
     # taking the l2 norm of each row of the manipulability matrix
-    # return torch.linalg.norm(manipulability, dim=-1, ord=2)
     return torch.linalg.norm(manipulability, ord=2, dim=-1)
 
 

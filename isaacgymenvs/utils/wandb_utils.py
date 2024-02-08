@@ -19,16 +19,17 @@ class WandbAlgoObserver(AlgoObserver):
 
         import wandb
 
-        wandb_unique_id = f"uid_{experiment_name}"
-        if "sweep" not in experiment_name.lower():
-            print(f"Wandb using unique id {wandb_unique_id}")
-
         cfg = self.cfg
+        # ema = cfg.task.env.actionsMovingAverage
+
+        # wandb_unique_id = f'unique_id_{experiment_name}' + f'_ema={ema}'
+        wandb_unique_id = f"{experiment_name}"  # + f'_ema={ema}'
+        print(f"Wandb using unique id {wandb_unique_id}")
 
         # this can fail occasionally, so we try a couple more times
         @retry(3, exceptions=(Exception,))
         def init_wandb():
-            kwargs = dict(
+            wandb.init(
                 project=cfg.wandb_project,
                 entity=cfg.wandb_entity,
                 group=cfg.wandb_group,
@@ -37,13 +38,8 @@ class WandbAlgoObserver(AlgoObserver):
                 id=wandb_unique_id,
                 name=experiment_name,
                 resume=True,
-                notes=cfg.wandb_notes,
                 settings=wandb.Settings(start_method="fork"),
             )
-            if "sweep" in experiment_name.lower():
-                kwargs.pop("id")
-                kwargs.pop("resume")
-            wandb.init(**kwargs)
 
             if cfg.wandb_logcode_dir:
                 wandb.run.log_code(root=cfg.wandb_logcode_dir)
@@ -59,3 +55,18 @@ class WandbAlgoObserver(AlgoObserver):
             wandb.config.update(self.cfg, allow_val_change=True)
         else:
             wandb.config.update(omegaconf_to_dict(self.cfg), allow_val_change=True)
+
+
+def delete_last_run(run_id):
+    api = wandb.Api()
+    if run_id == "last":
+        run = api.runs(path="krshna/isaacgymenvs", per_page=1)[0]
+    else:
+        run = api.run(path=f"krshna/isaacgymenvs/{run_id}")
+    try:
+        run.delete()
+    except Exception:
+        return False
+    else:
+        print(f"deleted run: {run.id}")
+        return True
