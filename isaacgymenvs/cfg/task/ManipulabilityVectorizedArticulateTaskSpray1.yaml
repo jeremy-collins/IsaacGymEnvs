@@ -21,7 +21,7 @@ env:
   numEnvs: ${resolve_default:16384,${...num_envs}}
   numActions: 22
   envSpacing: 0.75
-  episodeLength: 100
+  episodeLength: 600
   enableDebugVis: False
   aggregateMode: 1
 

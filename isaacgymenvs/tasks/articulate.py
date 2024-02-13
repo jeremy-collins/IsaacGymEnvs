@@ -3,7 +3,6 @@ from isaacgym import gymtorch
 
 import numpy as np
 import os
-import torch
 
 from gym import spaces
 from isaacgym import gymapi
@@ -11,6 +10,7 @@ from isaacgym.torch_utils import *
 from omegaconf import DictConfig, ListConfig
 from isaacgymenvs.utils import rewards
 from isaacgymenvs.tasks.utils import IsaacGymCameraBase
+from isaacgymenvs.utils.reformat import omegaconf_to_dict, print_dict
 from omegaconf import OmegaConf
 from .base.vec_task import VecTask
 
@@ -19,6 +19,7 @@ import wandb
 
 from utils.manipulability import *
 import copy
+import torch
 
 SUPPORTED_PARTNET_OBJECTS = [
     "dispenser",
@@ -80,8 +81,9 @@ class ArticulateTask(VecTask, IsaacGymCameraBase):
         virtual_screen_capture,
         force_render,
     ):
+        torch.autograd.set_detect_anomaly(True) # TODO: remove this
         self.cfg = cfg
-
+        print("ArticulateTask cfg: ", cfg)
         self.dict_obs_cls = self.cfg["env"].get("useDictObs", False)
         if self.dict_obs_cls:
             assert "obsDims" in self.cfg["env"], "obsDims must be specified for dict obs"
@@ -307,7 +309,7 @@ class ArticulateTask(VecTask, IsaacGymCameraBase):
             assert self.device == "cpu", "saveRigidBodyState only works with CPU tensors!"
             initial_state = np.load("initial_state.npy")
             result = self.gym.set_sim_rigid_body_states(self.sim, initial_state, gymapi.STATE_ALL)
-            # print("set_sim_rigid_body_states in init_sim with result: ", result)
+            print("set_sim_rigid_body_states in init_sim with result: ", result)
             self.gym.simulate(self.sim)
 
         if self.obs_type == "full_state" or self.asymmetric_obs:
@@ -910,6 +912,7 @@ class ArticulateTask(VecTask, IsaacGymCameraBase):
         self.goal_object_indices = to_torch(self.goal_object_indices, dtype=torch.long, device=self.device)
 
     def reset_target_pose(self, env_ids, apply_reset=False):
+        print("resetting goals in reset_target_pose at", env_ids)
         if isinstance(self.object_target_dof_pos, torch.Tensor) and len(self.object_target_dof_pos) > 1:
             object_target_dof = self.object_target_dof_pos.repeat(self.num_envs // self.num_objects).unsqueeze(-1)[
                 env_ids
@@ -938,28 +941,32 @@ class ArticulateTask(VecTask, IsaacGymCameraBase):
                 gymtorch.unwrap_tensor(goal_indices),
                 len(env_ids),
             )
-            self.gym.set_dof_state_tensor_indexed(
+            print("set_dof_position_target_tensor_indexed in reset_target_pose with result: ", result)
+
+            result = self.gym.set_dof_state_tensor_indexed(
                 self.sim,
                 gymtorch.unwrap_tensor(self.dof_state),
                 gymtorch.unwrap_tensor(goal_indices),
                 len(env_ids),
             )
-            # print("set_dof_state_tensor_indexed in reset_target_pose with result: ", result)
-
+            print("set_dof_state_tensor_indexed in reset_target_pose with result: ", result)
+                  
             # zeroes velocities
             self.root_state_tensor[self.goal_object_indices[env_ids], 7:13] = torch.zeros_like(
                 self.root_state_tensor[self.goal_object_indices[env_ids], 7:13]
             )
 
-            if apply_reset:
-                goal_object_indices = self.goal_object_indices[env_ids].to(torch.int32)
-                self.gym.set_actor_root_state_tensor_indexed(
+        if apply_reset and self.load_goal_asset:
+            print("applying reset in reset_target_pose at", env_ids)
+            goal_object_indices = self.goal_object_indices[env_ids].to(torch.long)
+            if self.prev_bufs_manip is None:
+                result = self.gym.set_actor_root_state_tensor_indexed(
                     self.sim,
                     gymtorch.unwrap_tensor(self.root_state_tensor),
                     gymtorch.unwrap_tensor(goal_object_indices),
                     len(env_ids),
                 )
-                # print("set_actor_root_state_tensor_indexed in reset_target_pose with result: ", result)
+                print("set_actor_root_state_tensor_indexed in reset_target_pose with result: ", result)
             else:
                 self.prev_bufs_manip["prev_actor_root_state_tensor"][goal_object_indices] = self.root_state_tensor[
                     goal_object_indices
@@ -1037,7 +1044,7 @@ class ArticulateTask(VecTask, IsaacGymCameraBase):
                 gymtorch.unwrap_tensor(object_indices),
                 len(object_indices),
             )
-            # print("set_actor_root_state_tensor_indexed in reset_idx with result: ", result)
+            print("set_actor_root_state_tensor_indexed in reset_idx with result: ", result)
         else:
             self.prev_bufs_manip["prev_actor_root_state_tensor"][object_indices] = self.root_state_tensor[
                 object_indices
@@ -1068,21 +1075,37 @@ class ArticulateTask(VecTask, IsaacGymCameraBase):
         self.cur_targets[env_ids, : self.num_shadow_hand_dofs] = pos
 
         hand_indices = self.hand_indices[env_ids].to(torch.int32)
-        self.gym.set_dof_position_target_tensor_indexed(
-            self.sim,
-            gymtorch.unwrap_tensor(self.prev_targets),
-            gymtorch.unwrap_tensor(hand_indices),
-            len(env_ids),
-        )
 
-        self.gym.set_dof_state_tensor_indexed(
-            self.sim,
-            gymtorch.unwrap_tensor(self.dof_state),
-            gymtorch.unwrap_tensor(hand_indices),
-            len(env_ids),
-        )
+        if self.prev_bufs_manip is None:
+            result = self.gym.set_dof_state_tensor_indexed(
+                self.sim,
+                gymtorch.unwrap_tensor(self.dof_state),
+                gymtorch.unwrap_tensor(hand_indices),
+                len(env_ids),
+            )
+            print("set_dof_state_tensor_indexed in reset_idx")
 
+            result = self.gym.set_dof_position_target_tensor_indexed(
+                self.sim,
+                gymtorch.unwrap_tensor(self.prev_targets),
+                gymtorch.unwrap_tensor(hand_indices),
+                len(env_ids),
+            )
+            print("set_dof_position_target_tensor_indexed in reset_idx")
+
+        else:
+            print("hand_indices", hand_indices)
+            print("self.prev_bufs_manip[prev_dof_state_tensor].shape", self.prev_bufs_manip["prev_dof_state_tensor"].shape)
+            print("self.prev_bufs_manip[prev_targets].shape", self.prev_bufs_manip["prev_targets"].shape)
+            print("self.dof_state.shape", self.dof_state.shape)
+            print("self.prev_targets.shape", self.prev_targets.shape)
+            self.prev_bufs_manip["prev_dof_state_tensor"][hand_indices] = self.dof_state[hand_indices]
+            self.prev_bufs_manip["prev_targets"][hand_indices] = self.prev_targets[hand_indices]
+
+        print("env_ids", env_ids)
+        print("progress_buf before zeroing", self.progress_buf)
         self.progress_buf[env_ids] = 0
+        print("progress_buf after zeroing", self.progress_buf)
         self.reset_buf[env_ids] = 0
         self.successes[env_ids] = 0
 
@@ -1107,6 +1130,7 @@ class ArticulateTask(VecTask, IsaacGymCameraBase):
             self.reset_target_pose(goal_env_ids)
 
         if len(env_ids) > 0:
+            print("resetting envs at", env_ids, "with goals at", goal_env_ids)
             self.reset_idx(env_ids, goal_env_ids)
 
         self.actions = actions.clone().to(self.device)
@@ -1169,12 +1193,14 @@ class ArticulateTask(VecTask, IsaacGymCameraBase):
 
         if self.prev_bufs_manip is None:
             result = self.gym.set_dof_position_target_tensor(self.sim, gymtorch.unwrap_tensor(self.cur_targets))
-            # print("set_dof_position_target_tensor in assign_act with result: ", result)
+            print("set_dof_position_target_tensor in assign_act with result: ", result)
         else:
             self.prev_bufs_manip["prev_targets"] = self.cur_targets
 
     def post_physics_step(self):
+        print("self.progress_buf before +=", self.progress_buf)
         self.progress_buf += 1
+        print("self.progress_buf after +=", self.progress_buf)
 
         self.compute_observations()
         self.compute_reward()
@@ -1825,3 +1851,32 @@ class ArticulateTaskCamera(ArticulateTask):
             self.camera_tensors_list.append(
                 self.create_tensors_for_env_cameras(env_ptr, env_camera_handles, camera_spec)
             )
+
+if __name__ == "__main__":
+    # cfg_dict = omegaconf_to_dict("ManipulabilityVectorizedArticulateTaskSpray1")
+    # print("cfg_dict in main", cfg_dict)
+    cfg = {'task': {'name': 'ArticulateTask', 'physics_engine': '${..physics_engine}', 'env': {'numEnvs': '${resolve_default:16384,${...num_envs}}', 'numActions': 22, 'envSpacing': 0.75, 'episodeLength': 600, 'enableDebugVis': False, 'aggregateMode': 1, 'clipObservations': 5.0, 'clipActions': 1.0, 'stiffnessScale': 1.0, 'forceLimitScale': 1.0, 'useRelativeControl': False, 'dofSpeedScale': 20.0, 'actionsMovingAverage': 1.0, 'controlFrequencyInv': 2, 'startPositionNoise': 0.01, 'startRotationNoise': 0.0, 'resetPositionNoise': 0.01, 'resetRotationNoise': 0.0, 'resetDofPosRandomInterval': 0.2, 'resetDofVelRandomInterval': 0.0, 'forceScale': 0.0, 'forceProbRange': [0.001, 0.1], 'forceDecay': 0.99, 'forceDecayInterval': 0.08, 'successTolerance': 0.005, 'rewardParams': {'task_rew': '${task.rewards.task_reward}', 'hand_dist': '${task.rewards.hand_dist}', 'action_penalty': '${task.rewards.action_penalty}', 'reach_bonus': '${task.rewards.reach_bonus}', 'fall_penalty': '${task.rewards.drop_penalty}', 'hand_rot_reward': '${task.rewards.hand_rot_reward}', 'manipulability_reward_vectorized': '${task.rewards.manipulability_reward_vectorized}'}, 'fallPenalty': 0.0, 'objectType': ['spray_bottle'], 'objectInstance': {'spray_bottle': [0]}, 'objectDofName': 'joint_0', 'objectDofTargetPos': [0.075], 'scaleDofPos': False, 'objectMassBaseOnly': True, 'objectMass': 10, 'objectStiffness': 3, 'objectDamping': 0.1, 'fixObjectBase': False, 'observationType': 'full_state', 'asymmetric_observations': False, 'printNumSuccesses': False, 'maxConsecutiveSuccesses': 100, 'asset': {'assetFileName': 'urdf/kuka_allegro_description/allegro_grasp.urdf', 'assetFileNameBlock': 'urdf/objects/cube_multicolor_allegro.urdf', 'assetFileNameEgg': 'mjcf/open_ai_assets/hand/egg.xml', 'assetFileNamePen': 'mjcf/open_ai_assets/hand/pen.xml', 'assetFileNameBottle': 'urdf/objects/bottle/mobility.urdf', 'assetFileNamePillBottle': 'urdf/objects/pill_bottle/mobility.urdf', 'assetFileNameSprayBottle': ['urdf/objects/spray_bottle/mobility.urdf', 'urdf/objects/spray_bottle2/mobility.urdf'], 'assetFileNameDispenser': 'urdf/objects/dispenser/mobility.urdf'}}, 'task': {'randomize': False, 'randomization_params': {'frequency': 720, 'observations': {'range': [0, 0.002], 'range_correlated': [0, 0.001], 'operation': 'additive', 'distribution': 'gaussian'}, 'actions': {'range': [0.0, 0.05], 'range_correlated': [0, 0.015], 'operation': 'additive', 'distribution': 'gaussian'}, 'sim_params': {'gravity': {'range': [0, 0.4], 'operation': 'additive', 'distribution': 'gaussian'}}, 'actor_params': {'hand': {'color': True, 'dof_properties': {'damping': {'range': [0.3, 3.0], 'operation': 'scaling', 'distribution': 'loguniform'}, 'stiffness': {'range': [0.75, 1.5], 'operation': 'scaling', 'distribution': 'loguniform'}, 'lower': {'range': [0, 0.01], 'operation': 'additive', 'distribution': 'gaussian'}, 'upper': {'range': [0, 0.01], 'operation': 'additive', 'distribution': 'gaussian'}}, 'rigid_body_properties': {'mass': {'range': [0.5, 1.5], 'operation': 'scaling', 'distribution': 'uniform', 'setup_only': True}}, 'rigid_shape_properties': {'friction': {'num_buckets': 250, 'range': [0.7, 1.3], 'operation': 'scaling', 'distribution': 'uniform'}}}, 'object': {'scale': {'range': [0.95, 1.05], 'operation': 'scaling', 'distribution': 'uniform', 'setup_only': True}, 'rigid_body_properties': {'mass': {'range': [0.5, 1.5], 'operation': 'scaling', 'distribution': 'uniform', 'setup_only': True}}, 'rigid_shape_properties': {'friction': {'num_buckets': 250, 'range': [0.7, 1.3], 'operation': 'scaling', 'distribution': 'uniform'}}}}}, 'enableCameraSensors': False}, 'sim': {'dt': 0.01667, 'substeps': 2, 'up_axis': 'z', 'use_gpu_pipeline': '${eq:${...pipeline},"gpu"}', 'gravity': [0.0, 0.0, -9.81], 'physx': {'num_threads': '${....num_threads}', 'solver_type': '${....solver_type}', 'use_gpu': '${contains:"cuda",${....sim_device}}', 'num_position_iterations': 8, 'num_velocity_iterations': 0, 'max_gpu_contact_pairs': 8388608, 'num_subscenes': '${....num_subscenes}', 'contact_offset': 0.002, 'rest_offset': 0.0, 'bounce_threshold_velocity': 0.2, 'max_depenetration_velocity': 1000.0, 'default_buffer_size_multiplier': 5.0, 'contact_collection': 0}}, 'rewards': {'action_penalty': {'reward_fn_partial': {'_partial_': True, '_target_': 'isaacgymenvs.utils.rewards.action_penalty'}, 'args': ['actions'], 'scale': -0.0002}, 'object_pos_err': {'reward_fn_partial': {'_partial_': True, '_target_': 'isaacgymenvs.utils.rewards.l2_dist'}, 'args': ['target_pos', 'object_pos'], 'scale': -10.0}, 'object_dof_pos_err': {'reward_fn_partial': {'_partial_': True, '_target_': 'isaacgymenvs.utils.rewards.l2_dist'}, 'args': ['object_dof_pos', 'goal_dof_pos'], 'scale': -10.0}, 'task_reward': {'reward_fn_partial': {'_partial_': True, '_target_': 'isaacgymenvs.utils.rewards.l2_dist_exp_normalized'}, 'args': ['object_dof_pos', 'goal_dof_pos'], 'scale': 1}, 'reach_bonus': {'reward_fn_partial': {'_partial_': True, '_target_': 'isaacgymenvs.utils.rewards.reach_bonus'}, 'args': ['object_dof_pos', 'goal_dof_pos', 'success_tolerance'], 'scale': 250.0}, 'drop_penalty': {'reward_fn_partial': {'_partial_': True, '_target_': 'isaacgymenvs.utils.rewards.drop_penalty'}, 'args': ['object_pos', 'goal_pos', 0.24], 'scale': -50.0}, 'hand_dist': {'reward_fn_partial': {'_partial_': True, '_target_': 'isaacgymenvs.utils.rewards.hand_dist'}, 'args': ['object_pos', 'hand_palm_pos', 'fingertip_pos'], 'scale': -50.0}, 'hand_rot_reward': {'reward_fn_partial': {'_partial_': True, '_target_': 'isaacgymenvs.utils.rewards.rot_reward'}, 'args': ['hand_quat', 'hand_init_quat'], 'scale': 0.1}, 'manipulability_reward_vectorized': {'reward_fn_partial': {'_partial_': True, '_target_': 'isaacgymenvs.utils.rewards.manipulability_frobenius_norm_vectorized'}, 'args': ['manipulability', 'object_pose', 'goal_pose', 'actions'], 'scale': 10}}}, 'train': {'params': {'seed': '${...seed}', 'algo': {'name': 'a2c_continuous'}, 'model': {'name': 'continuous_a2c_logstd'}, 'network': {'name': 'actor_critic', 'separate': False, 'space': {'continuous': {'mu_activation': 'None', 'sigma_activation': 'None', 'mu_init': {'name': 'default'}, 'sigma_init': {'name': 'const_initializer', 'val': 0}, 'fixed_sigma': True}}, 'mlp': {'units': [512, 256, 128], 'activation': 'elu', 'd2rl': False, 'initializer': {'name': 'default'}, 'regularizer': {'name': 'None'}}}, 'load_checkpoint': '${if:${...checkpoint},True,False}', 'load_path': '${...checkpoint}', 'config': {'name': '${resolve_default:AllegroHandGrasp,${....experiment}}', 'full_experiment_name': '${.name}', 'env_name': 'rlgpu', 'multi_gpu': False, 'ppo': True, 'mixed_precision': False, 'normalize_input': True, 'normalize_value': True, 'value_bootstrap': True, 'num_actors': '${....task.env.numEnvs}', 'reward_shaper': {'scale_value': 0.01}, 'normalize_advantage': True, 'gamma': 0.99, 'tau': 0.95, 'learning_rate': 0.005, 'lr_schedule': 'adaptive', 'schedule_type': 'standard', 'kl_threshold': 0.02, 'score_to_win': 100000, 'max_epochs': 100000, 'save_best_after': 200, 'save_frequency': 200, 'print_stats': True, 'grad_norm': 1.0, 'entropy_coef': 0.0, 'truncate_grads': True, 'e_clip': 0.2, 'horizon_length': 8, 'minibatch_size': '${eval:${....task.env.numEnvs}*2}', 'mini_epochs': 5, 'critic_coef': 4, 'clip_value': True, 'seq_len': 4, 'bounds_loss_coef': 0.0001, 'score_keys': ['goal_dist', 'hand_dist', 'task_dist', 'success', 'full_hand_dist', 'fingertip_dist'], 'device': '${rl_device}', 'player': {'deterministic': True, 'games_num': 100000, 'print_stats': True, 'device': '${rl_device}'}}}}, 'task_name': '${task.name}', 'experiment': 'ManipulabilityVectorizedArticulateTaskSpray1', 'num_envs': 704, 'seed': 42, 'torch_deterministic': False, 'max_iterations': '', 'physics_engine': 'physx', 'pipeline': 'gpu', 'sim_device': 'cuda:0', 'rl_device': 'cuda:0', 'graphics_device_id': 0, 'num_threads': 4, 'solver_type': 1, 'num_subscenes': 4, 'test': False, 'checkpoint': '', 'load_config': False, 'sigma': '', 'multi_gpu': False, 'wandb_activate': False, 'wandb_group': '', 'wandb_name': '${train.params.config.name}', 'wandb_entity': '', 'wandb_project': 'manipulability-isaacgym', 'wandb_tags': [], 'wandb_logcode_dir': '', 'capture_video': False, 'capture_video_freq': 1464, 'capture_video_len': 100, 'force_render': True, 'headless': False}
+    # for key in cfg.keys():
+    #     print("cfg key", key)
+    env_cfg = cfg['task']
+    device = "cuda" if torch.cuda.is_available() else "cpu"
+    env = ArticulateTask(
+        cfg=env_cfg,
+        rl_device=device,
+        sim_device=device,
+        graphics_device_id=0,
+        headless=False,
+        virtual_screen_capture=False,
+        force_render=True,
+    )
+
+    obs = env.reset()
+    print("obs", obs)
+    for i in range(100):
+        obs, rew, done, info = env.step(torch.zeros(1, 22))
+        print("obs", obs)
+        print("rew", rew)
+        print("done", done)
+        if done:
+            obs = env.reset()
+            print("obs", obs)
