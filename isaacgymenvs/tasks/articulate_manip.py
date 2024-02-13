@@ -689,8 +689,6 @@ class ArticulateTask(VecTask, IsaacGymCameraBase):
                 allegro_hand_frame_origin = init_transform
 
             # allegro_hand_dof_start_pos[:6] = 0.0
-            print("self.shadow_hand_dof_default_pos before append", self.shadow_hand_dof_default_pos)
-            print("appending allegro_hand_dof_start_pos", allegro_hand_dof_start_pos)
             self.shadow_hand_dof_default_pos.append(allegro_hand_dof_start_pos)
             poses.append((object_start_pose, goal_start_pose, allegro_hand_frame_origin))
 
@@ -777,7 +775,8 @@ class ArticulateTask(VecTask, IsaacGymCameraBase):
             )
             self.gym.set_actor_dof_properties(env_ptr, shadow_hand_actor, shadow_hand_dof_props)
             hand_idx = self.gym.get_actor_index(env_ptr, shadow_hand_actor, gymapi.DOMAIN_SIM)
-            self.hand_indices.append(hand_idx)
+            self.hand_indices.append(hand_idx // 2) # TODO: fix this hack, hand_idx is 2x the actual index, creating an out of range error
+            # self.hand_indices.append(hand_idx)
             self.palm_index = self.gym.find_asset_rigid_body_index(allegro_hand_asset, "palm_link")
             self.x_link_index = self.gym.find_asset_rigid_body_index(allegro_hand_asset, "translation_x")
             self.y_link_index = self.gym.find_asset_rigid_body_index(allegro_hand_asset, "translation_y")
@@ -916,68 +915,68 @@ class ArticulateTask(VecTask, IsaacGymCameraBase):
         self.object_indices = to_torch(self.object_indices, dtype=torch.long, device=self.device)
         self.goal_object_indices = to_torch(self.goal_object_indices, dtype=torch.long, device=self.device)
 
-    def reset_target_pose(self, env_ids, apply_reset=False):
-        # print("resetting goals in reset_target_pose at", env_ids)
-        if isinstance(self.object_target_dof_pos, torch.Tensor) and len(self.object_target_dof_pos) > 1:
-            object_target_dof = self.object_target_dof_pos.repeat(self.num_envs // self.num_objects).unsqueeze(-1)[
-                env_ids
-            ]
-        else:
-            object_target_dof = self.object_target_dof_pos  # TODO: resample goal dof state here
+    # def reset_target_pose(self, env_ids, apply_reset=False):
+    #     # print("resetting goals in reset_target_pose at", env_ids)
+    #     if isinstance(self.object_target_dof_pos, torch.Tensor) and len(self.object_target_dof_pos) > 1:
+    #         object_target_dof = self.object_target_dof_pos.repeat(self.num_envs // self.num_objects).unsqueeze(-1)[
+    #             env_ids
+    #         ]
+    #     else:
+    #         object_target_dof = self.object_target_dof_pos  # TODO: resample goal dof state here
 
-        # sets goal object position and rotation and dof pos
-        if self.load_goal_asset:
-            self.goal_states[env_ids, 0:7] = self.goal_init_state[env_ids, 0:7]
-            self.root_state_tensor[self.goal_object_indices[env_ids], 0:3] = (
-                self.goal_states[env_ids, 0:3] + self.goal_displacement_tensor
-            )
-            self.root_state_tensor[self.goal_object_indices[env_ids], 3:7] = self.goal_states[env_ids, 3:7]
-            self.goal_dof_state[env_ids, :, 0] = object_target_dof
+    #     # sets goal object position and rotation and dof pos
+    #     if self.load_goal_asset:
+    #         self.goal_states[env_ids, 0:7] = self.goal_init_state[env_ids, 0:7]
+    #         self.root_state_tensor[self.goal_object_indices[env_ids], 0:3] = (
+    #             self.goal_states[env_ids, 0:3] + self.goal_displacement_tensor
+    #         )
+    #         self.root_state_tensor[self.goal_object_indices[env_ids], 3:7] = self.goal_states[env_ids, 3:7]
+    #         self.goal_dof_state[env_ids, :, 0] = object_target_dof
 
-            goal_indices = self.goal_object_indices[env_ids].to(torch.int32)
-            # reset goal task pose
-            self.prev_targets[
-                env_ids,
-                self.num_dofs_with_object : self.num_dofs_with_object + self.num_object_dofs,
-            ] = object_target_dof
-            self.gym.set_dof_position_target_tensor_indexed(
-                self.sim,
-                gymtorch.unwrap_tensor(self.prev_targets),
-                gymtorch.unwrap_tensor(goal_indices),
-                len(env_ids),
-            )
-            # print("set_dof_position_target_tensor_indexed in reset_target_pose with result: ", result)
+    #         goal_indices = self.goal_object_indices[env_ids].to(torch.int32)
+    #         # reset goal task pose
+    #         self.prev_targets[
+    #             env_ids,
+    #             self.num_dofs_with_object : self.num_dofs_with_object + self.num_object_dofs,
+    #         ] = object_target_dof
+    #         self.gym.set_dof_position_target_tensor_indexed(
+    #             self.sim,
+    #             gymtorch.unwrap_tensor(self.prev_targets),
+    #             gymtorch.unwrap_tensor(goal_indices),
+    #             len(env_ids),
+    #         )
+    #         # print("set_dof_position_target_tensor_indexed in reset_target_pose with result: ", result)
 
-            result = self.gym.set_dof_state_tensor_indexed(
-                self.sim,
-                gymtorch.unwrap_tensor(self.dof_state),
-                gymtorch.unwrap_tensor(goal_indices),
-                len(env_ids),
-            )
-            # print("set_dof_state_tensor_indexed in reset_target_pose with result: ", result)
+    #         result = self.gym.set_dof_state_tensor_indexed(
+    #             self.sim,
+    #             gymtorch.unwrap_tensor(self.dof_state),
+    #             gymtorch.unwrap_tensor(goal_indices),
+    #             len(env_ids),
+    #         )
+    #         # print("set_dof_state_tensor_indexed in reset_target_pose with result: ", result)
                   
-            # zeroes velocities
-            self.root_state_tensor[self.goal_object_indices[env_ids], 7:13] = torch.zeros_like(
-                self.root_state_tensor[self.goal_object_indices[env_ids], 7:13]
-            )
+    #         # zeroes velocities
+    #         self.root_state_tensor[self.goal_object_indices[env_ids], 7:13] = torch.zeros_like(
+    #             self.root_state_tensor[self.goal_object_indices[env_ids], 7:13]
+    #         )
 
-        if apply_reset and self.load_goal_asset:
-            # print("applying reset in reset_target_pose at", env_ids)
-            goal_object_indices = self.goal_object_indices[env_ids].to(torch.long)
-            if self.prev_bufs_manip is None:
-                result = self.gym.set_actor_root_state_tensor_indexed(
-                    self.sim,
-                    gymtorch.unwrap_tensor(self.root_state_tensor),
-                    gymtorch.unwrap_tensor(goal_object_indices),
-                    len(env_ids),
-                )
-                # print("set_actor_root_state_tensor_indexed in reset_target_pose with result: ", result)
-            else:
-                self.prev_bufs_manip["prev_actor_root_state_tensor"][goal_object_indices] = self.root_state_tensor[
-                    goal_object_indices
-                ]
+    #     if apply_reset and self.load_goal_asset:
+    #         # print("applying reset in reset_target_pose at", env_ids)
+    #         goal_object_indices = self.goal_object_indices[env_ids].to(torch.long)
+    #         if self.prev_bufs_manip is None:
+    #             result = self.gym.set_actor_root_state_tensor_indexed(
+    #                 self.sim,
+    #                 gymtorch.unwrap_tensor(self.root_state_tensor),
+    #                 gymtorch.unwrap_tensor(goal_object_indices),
+    #                 len(env_ids),
+    #             )
+    #             # print("set_actor_root_state_tensor_indexed in reset_target_pose with result: ", result)
+    #         else:
+    #             self.prev_bufs_manip["prev_actor_root_state_tensor"][goal_object_indices] = self.root_state_tensor[
+    #                 goal_object_indices
+    #             ]
 
-        self.reset_goal_buf[env_ids] = 0
+    #     self.reset_goal_buf[env_ids] = 0
 
     def get_or_sample_noise_scale(self, param: Union[float, dict]):
         if isinstance(param, float):
@@ -996,123 +995,123 @@ class ArticulateTask(VecTask, IsaacGymCameraBase):
             raise ValueError(f"Invalid reset_position_noise: {param} must be float or dict")
         return noise_scale
 
-    def reset_idx(self, env_ids, goal_env_ids=None):
-        # generate random values
-        rand_floats = torch_rand_float(
-            -1.0,
-            1.0,
-            (len(env_ids), self.num_shadow_hand_dofs * 2 + 13),
-            device=self.device,
-        )  # * 0
+    # def reset_idx(self, env_ids, goal_env_ids=None):
+    #     # generate random values
+    #     rand_floats = torch_rand_float(
+    #         -1.0,
+    #         1.0,
+    #         (len(env_ids), self.num_shadow_hand_dofs * 2 + 13),
+    #         device=self.device,
+    #     )  # * 0
 
-        # reset start object target poses
-        self.reset_target_pose(env_ids)
+    #     # reset start object target poses
+    #     self.reset_target_pose(env_ids)
 
-        # reset rigid body forces
-        if self.num_objects > 1:
-            rb_env_ids = torch.unique(to_torch(env_ids // self.num_objects, device=self.device, dtype=torch.long))
-        else:
-            rb_env_ids = env_ids
-        self.rb_forces[rb_env_ids, :, :] = 0.0
+    #     # reset rigid body forces
+    #     if self.num_objects > 1:
+    #         rb_env_ids = torch.unique(to_torch(env_ids // self.num_objects, device=self.device, dtype=torch.long))
+    #     else:
+    #         rb_env_ids = env_ids
+    #     self.rb_forces[rb_env_ids, :, :] = 0.0
 
-        # reset object position/orientation
-        self.root_state_tensor[self.object_indices[env_ids]] = self.object_init_state[env_ids].clone()
-        pose_noise_scale = self.get_or_sample_noise_scale(self.reset_position_noise)
+    #     # reset object position/orientation
+    #     self.root_state_tensor[self.object_indices[env_ids]] = self.object_init_state[env_ids].clone()
+    #     pose_noise_scale = self.get_or_sample_noise_scale(self.reset_position_noise)
 
-        # TODO: disentangle object pose noise and dof_pose noise
-        object_pose_noise = pose_noise_scale * rand_floats[:, :13]
-        object_pose_noise[:, 1] = 0.0  # no noise in y-dim
-        # z-dim noise must be negative
-        object_pose_noise[:, 2] = torch.clamp(object_pose_noise[:, 2], 0, torch.inf)
-        object_pose_noise[:, 3:] = 0.0
-        self.root_state_tensor[self.object_indices[env_ids]] += object_pose_noise
-        rand_floats = rand_floats[:, 13:] * 0
+    #     # TODO: disentangle object pose noise and dof_pose noise
+    #     object_pose_noise = pose_noise_scale * rand_floats[:, :13]
+    #     object_pose_noise[:, 1] = 0.0  # no noise in y-dim
+    #     # z-dim noise must be negative
+    #     object_pose_noise[:, 2] = torch.clamp(object_pose_noise[:, 2], 0, torch.inf)
+    #     object_pose_noise[:, 3:] = 0.0
+    #     self.root_state_tensor[self.object_indices[env_ids]] += object_pose_noise
+    #     rand_floats = rand_floats[:, 13:] * 0
 
-        # reset object velocity
-        self.root_state_tensor[self.object_indices[env_ids], 7:13] = torch.zeros_like(
-            self.root_state_tensor[self.object_indices[env_ids], 7:13]
-        )
+    #     # reset object velocity
+    #     self.root_state_tensor[self.object_indices[env_ids], 7:13] = torch.zeros_like(
+    #         self.root_state_tensor[self.object_indices[env_ids], 7:13]
+    #     )
 
-        object_indices = [self.object_indices[env_ids]]
-        if self.load_goal_asset:
-            object_indices += [self.goal_object_indices[env_ids]]
-            if goal_env_ids is not None:
-                object_indices += [
-                    self.goal_object_indices[goal_env_ids],  # TODO: remove these if goal asset not added
-                ]
-        object_indices = torch.unique(torch.cat(object_indices).to(torch.int32))
+    #     object_indices = [self.object_indices[env_ids]]
+    #     if self.load_goal_asset:
+    #         object_indices += [self.goal_object_indices[env_ids]]
+    #         if goal_env_ids is not None:
+    #             object_indices += [
+    #                 self.goal_object_indices[goal_env_ids],  # TODO: remove these if goal asset not added
+    #             ]
+    #     object_indices = torch.unique(torch.cat(object_indices).to(torch.int32))
 
-        if self.prev_bufs_manip is None:
-            result = self.gym.set_actor_root_state_tensor_indexed(
-                self.sim,
-                gymtorch.unwrap_tensor(self.root_state_tensor),
-                gymtorch.unwrap_tensor(object_indices),
-                len(object_indices),
-            )
-            # print("set_actor_root_state_tensor_indexed in reset_idx with result: ", result)
-        else:
-            self.prev_bufs_manip["prev_actor_root_state_tensor"][object_indices] = self.root_state_tensor[
-                object_indices
-            ]
+    #     if self.prev_bufs_manip is None:
+    #         result = self.gym.set_actor_root_state_tensor_indexed(
+    #             self.sim,
+    #             gymtorch.unwrap_tensor(self.root_state_tensor),
+    #             gymtorch.unwrap_tensor(object_indices),
+    #             len(object_indices),
+    #         )
+    #         # print("set_actor_root_state_tensor_indexed in reset_idx with result: ", result)
+    #     else:
+    #         self.prev_bufs_manip["prev_actor_root_state_tensor"][object_indices] = self.root_state_tensor[
+    #             object_indices
+    #         ]
 
-        # reset random force probabilities
-        self.random_force_prob[env_ids] = torch.exp(
-            (torch.log(self.force_prob_range[0]) - torch.log(self.force_prob_range[1]))
-            * torch.rand(len(env_ids), device=self.device)
-            + torch.log(self.force_prob_range[1])
-        )
+    #     # reset random force probabilities
+    #     self.random_force_prob[env_ids] = torch.exp(
+    #         (torch.log(self.force_prob_range[0]) - torch.log(self.force_prob_range[1]))
+    #         * torch.rand(len(env_ids), device=self.device)
+    #         + torch.log(self.force_prob_range[1])
+    #     )
 
-        # reset shadow hand
-        delta_max = self.shadow_hand_dof_upper_limits - self.shadow_hand_dof_default_pos
-        delta_min = self.shadow_hand_dof_lower_limits - self.shadow_hand_dof_default_pos
-        rand_delta = delta_min + (delta_max - delta_min) * rand_floats[:, : self.num_shadow_hand_dofs]
+    #     # reset shadow hand
+    #     delta_max = self.shadow_hand_dof_upper_limits - self.shadow_hand_dof_default_pos
+    #     delta_min = self.shadow_hand_dof_lower_limits - self.shadow_hand_dof_default_pos
+    #     rand_delta = delta_min + (delta_max - delta_min) * rand_floats[:, : self.num_shadow_hand_dofs]
 
-        pos_noise_scale = self.get_or_sample_noise_scale(self.reset_dof_pos_noise)
-        vel_noise_scale = self.get_or_sample_noise_scale(self.reset_dof_vel_noise)
+    #     pos_noise_scale = self.get_or_sample_noise_scale(self.reset_dof_pos_noise)
+    #     vel_noise_scale = self.get_or_sample_noise_scale(self.reset_dof_vel_noise)
 
-        pos = self.shadow_hand_dof_default_pos + pos_noise_scale * rand_delta
-        self.shadow_hand_dof_pos[env_ids, :] = pos
-        self.shadow_hand_dof_vel[env_ids, :] = (
-            self.shadow_hand_dof_default_vel
-            + vel_noise_scale * rand_floats[:, self.num_shadow_hand_dofs : self.num_shadow_hand_dofs * 2]
-        )
-        self.prev_targets[env_ids, : self.num_shadow_hand_dofs] = pos
-        self.cur_targets[env_ids, : self.num_shadow_hand_dofs] = pos
+    #     pos = self.shadow_hand_dof_default_pos + pos_noise_scale * rand_delta
+    #     self.shadow_hand_dof_pos[env_ids, :] = pos
+    #     self.shadow_hand_dof_vel[env_ids, :] = (
+    #         self.shadow_hand_dof_default_vel
+    #         + vel_noise_scale * rand_floats[:, self.num_shadow_hand_dofs : self.num_shadow_hand_dofs * 2]
+    #     )
+    #     self.prev_targets[env_ids, : self.num_shadow_hand_dofs] = pos
+    #     self.cur_targets[env_ids, : self.num_shadow_hand_dofs] = pos
 
-        hand_indices = (self.hand_indices[env_ids] // 2).to(torch.int32) # TODO: remove this hack
+    #     hand_indices = self.hand_indices[env_ids].to(torch.int32)
 
-        if self.prev_bufs_manip is None:
-            result = self.gym.set_dof_state_tensor_indexed(
-                self.sim,
-                gymtorch.unwrap_tensor(self.dof_state),
-                gymtorch.unwrap_tensor(hand_indices),
-                len(env_ids),
-            )
-            # print("set_dof_state_tensor_indexed in reset_idx")
+    #     if self.prev_bufs_manip is None:
+    #         result = self.gym.set_dof_state_tensor_indexed(
+    #             self.sim,
+    #             gymtorch.unwrap_tensor(self.dof_state),
+    #             gymtorch.unwrap_tensor(hand_indices),
+    #             len(env_ids),
+    #         )
+    #         # print("set_dof_state_tensor_indexed in reset_idx")
 
-            result = self.gym.set_dof_position_target_tensor_indexed(
-                self.sim,
-                gymtorch.unwrap_tensor(self.prev_targets),
-                gymtorch.unwrap_tensor(hand_indices),
-                len(env_ids),
-            )
-            # print("set_dof_position_target_tensor_indexed in reset_idx")
+    #         result = self.gym.set_dof_position_target_tensor_indexed(
+    #             self.sim,
+    #             gymtorch.unwrap_tensor(self.prev_targets),
+    #             gymtorch.unwrap_tensor(hand_indices),
+    #             len(env_ids),
+    #         )
+    #         # print("set_dof_position_target_tensor_indexed in reset_idx")
 
-        else:
-            print("hand_indices", hand_indices)
-            # print("self.prev_bufs_manip[prev_dof_state_tensor].shape", self.prev_bufs_manip["prev_dof_state_tensor"].shape)
-            # print("self.prev_bufs_manip[prev_targets].shape", self.prev_bufs_manip["prev_targets"].shape)
-            # print("self.dof_state.shape", self.dof_state.shape)
-            # print("self.prev_targets.shape", self.prev_targets.shape)
-            self.prev_bufs_manip["prev_dof_state_tensor"][hand_indices] = self.dof_state[hand_indices]
-            self.prev_bufs_manip["prev_targets"][hand_indices] = self.prev_targets[hand_indices]
+    #     else:
+    #         # print("hand_indices", hand_indices)
+    #         # print("self.prev_bufs_manip[prev_dof_state_tensor].shape", self.prev_bufs_manip["prev_dof_state_tensor"].shape)
+    #         # print("self.prev_bufs_manip[prev_targets].shape", self.prev_bufs_manip["prev_targets"].shape)
+    #         # print("self.dof_state.shape", self.dof_state.shape)
+    #         # print("self.prev_targets.shape", self.prev_targets.shape)
+    #         self.prev_bufs_manip["prev_dof_state_tensor"][hand_indices] = self.dof_state[hand_indices]
+    #         self.prev_bufs_manip["prev_targets"][hand_indices] = self.prev_targets[hand_indices]
 
-        # print("env_ids", env_ids)
-        # print("progress_buf before zeroing", self.progress_buf)
-        self.progress_buf[env_ids] = 0
-        # print("progress_buf after zeroing", self.progress_buf)
-        self.reset_buf[env_ids] = 0
-        self.successes[env_ids] = 0
+    #     # print("env_ids", env_ids)
+    #     # print("progress_buf before zeroing", self.progress_buf)
+    #     self.progress_buf[env_ids] = 0
+    #     # print("progress_buf after zeroing", self.progress_buf)
+    #     self.reset_buf[env_ids] = 0
+    #     self.successes[env_ids] = 0
 
     def reset(self):
         self.compute_observations()
@@ -1123,49 +1122,26 @@ class ArticulateTask(VecTask, IsaacGymCameraBase):
 
     def pre_physics_step(self, actions):
         self.extras = {}
-        env_ids = self.reset_buf.nonzero(as_tuple=False).squeeze(-1)
-        goal_env_ids = self.reset_goal_buf.nonzero(as_tuple=False).squeeze(-1)
+        # env_ids = self.reset_buf.nonzero(as_tuple=False).squeeze(-1)
+        # goal_env_ids = self.reset_goal_buf.nonzero(as_tuple=False).squeeze(-1)
 
-        # if only goals need reset, then call set API
-        if len(goal_env_ids) > 0 and len(env_ids) == 0:
-            self.reset_target_pose(goal_env_ids, apply_reset=True)
+        # # if only goals need reset, then call set API
+        # if len(goal_env_ids) > 0 and len(env_ids) == 0:
+        #     self.reset_target_pose(goal_env_ids, apply_reset=True)
 
-        # if goals need reset in addition to other envs, call set API in reset()
-        elif len(goal_env_ids) > 0:
-            self.reset_target_pose(goal_env_ids)
+        # # if goals need reset in addition to other envs, call set API in reset()
+        # elif len(goal_env_ids) > 0:
+        #     self.reset_target_pose(goal_env_ids)
 
-        if len(env_ids) > 0:
-            # print("resetting envs at", env_ids, "with goals at", goal_env_ids)
-            self.reset_idx(env_ids, goal_env_ids)
+        # if len(env_ids) > 0:
+        #     # print("resetting envs at", env_ids, "with goals at", goal_env_ids)
+        #     self.reset_idx(env_ids, goal_env_ids)
 
         self.actions = actions.clone().to(self.device)
         self.assign_act(self.actions)
 
         if self.prev_bufs_manip is not None:
             manip_reset(self.gym, self.sim, **self.prev_bufs_manip)
-
-        # get rb forces
-        force_noise_scale = self.get_or_sample_noise_scale(self.force_scale)
-        if force_noise_scale > 0.0:
-            self.rb_forces *= torch.pow(self.force_decay, self.dt / self.force_decay_interval)
-
-            # apply new forces
-            force_indices = (torch.rand(self.num_envs, device=self.device) < self.random_force_prob).nonzero()
-            self.rb_forces[force_indices, self.object_rb_handles, :] = (
-                torch.randn_like(
-                    self.rb_forces[force_indices, self.object_rb_handles, :],
-                    device=self.device,
-                )
-                * self.object_rb_masses.unsqueeze(-1).unsqueeze(0)
-                * force_noise_scale
-            )
-
-            self.gym.apply_rigid_body_force_tensors(
-                self.sim,
-                gymtorch.unwrap_tensor(self.rb_forces),
-                None,
-                gymapi.LOCAL_SPACE,
-            )
 
     def assign_act(self, actions):
         if self.use_relative_control:
@@ -1208,218 +1184,218 @@ class ArticulateTask(VecTask, IsaacGymCameraBase):
         # print("self.progress_buf after +=", self.progress_buf)
 
         self.compute_observations()
-        self.compute_reward()
+        # self.compute_reward()
         # print('reward', self.current_rew_dict)
-        self.extras["consecutive_successes"] = self.reward_extras["consecutive_successes"].mean()
-        self.extras["goal_dist"] = torch.norm(
-            self.current_obs_dict["object_pos"] - self.current_obs_dict["goal_pos"],
-            p=2,
-            dim=-1,
-        )
-        self.extras["hand_dist"] = torch.norm(
-            self.current_obs_dict["hand_palm_pos"] - self.current_obs_dict["object_pos"],
-            p=2,
-            dim=-1,
-        )
-        self.extras["fingertip_dist"] = torch.norm(
-            self.current_obs_dict["fingertip_pos"] - self.current_obs_dict["object_pos"].unsqueeze(1),
-            p=2,
-            dim=-1,
-        ).sum(-1)
-        self.extras["full_hand_dist"] = self.extras["hand_dist"] + self.extras["fingertip_dist"]
+        # self.extras["consecutive_successes"] = self.reward_extras["consecutive_successes"].mean()
+        # self.extras["goal_dist"] = torch.norm(
+        #     self.current_obs_dict["object_pos"] - self.current_obs_dict["goal_pos"],
+        #     p=2,
+        #     dim=-1,
+        # )
+        # self.extras["hand_dist"] = torch.norm(
+        #     self.current_obs_dict["hand_palm_pos"] - self.current_obs_dict["object_pos"],
+        #     p=2,
+        #     dim=-1,
+        # )
+        # self.extras["fingertip_dist"] = torch.norm(
+        #     self.current_obs_dict["fingertip_pos"] - self.current_obs_dict["object_pos"].unsqueeze(1),
+        #     p=2,
+        #     dim=-1,
+        # ).sum(-1)
+        # self.extras["full_hand_dist"] = self.extras["hand_dist"] + self.extras["fingertip_dist"]
 
-        self.extras["success"] = self._check_success().flatten()
+        # self.extras["success"] = self._check_success().flatten()
 
-        if self.debug_rewards and (self.gym.get_frame_count(self.sim) % ((self.max_episode_length) // 10) == 0):
-            total_rew = self.rew_buf.clone()
-            for key, rew in self.current_rew_dict.items():
-                norm_rew = rew / total_rew
-                print(
-                    f"{key} reward (min/max), [mean+/-std]: ({norm_rew.min()}, {norm_rew.max()}), [{norm_rew.mean()} +/- {norm_rew.std()}]"
-                )
+        # if self.debug_rewards and (self.gym.get_frame_count(self.sim) % ((self.max_episode_length) // 10) == 0):
+        #     total_rew = self.rew_buf.clone()
+        #     for key, rew in self.current_rew_dict.items():
+        #         norm_rew = rew / total_rew
+        #         print(
+        #             f"{key} reward (min/max), [mean+/-std]: ({norm_rew.min()}, {norm_rew.max()}), [{norm_rew.mean()} +/- {norm_rew.std()}]"
+        #         )
 
-        if self.print_success_stat and self.reset_buf.sum() > 0:
-            self.total_resets = self.total_resets + self.reset_buf.sum()
-            direct_average_successes = self.total_successes + self.successes.sum()
-            self.total_successes = self.total_successes + (self.successes * self.reset_buf).sum()
+        # if self.print_success_stat and self.reset_buf.sum() > 0:
+        #     self.total_resets = self.total_resets + self.reset_buf.sum()
+        #     direct_average_successes = self.total_successes + self.successes.sum()
+        #     self.total_successes = self.total_successes + (self.successes * self.reset_buf).sum()
 
-            # The direct average shows the overall result more quickly, but slightly undershoots long term
-            # policy performance.
-            print(
-                "Direct average consecutive successes = {:.1f}".format(
-                    direct_average_successes / (self.total_resets + self.num_envs)
-                )
-            )
-            if self.total_resets > 0:
-                print(
-                    "Post-Reset average consecutive successes = {:.1f}".format(self.total_successes / self.total_resets)
-                )
+        #     # The direct average shows the overall result more quickly, but slightly undershoots long term
+        #     # policy performance.
+        #     print(
+        #         "Direct average consecutive successes = {:.1f}".format(
+        #             direct_average_successes / (self.total_resets + self.num_envs)
+        #         )
+        #     )
+        #     if self.total_resets > 0:
+        #         print(
+        #             "Post-Reset average consecutive successes = {:.1f}".format(self.total_successes / self.total_resets)
+        #         )
 
-        if self.viewer and self.debug_viz:
-            self.debug_visualization()
+        # if self.viewer and self.debug_viz:
+        #     self.debug_visualization()
 
-    def compute_reward(self):
-        self.current_rew_dict = self.get_reward_dict(
-            self.reward_params, self.current_obs_dict, self.actions, self.reward_extras
-        )
-        if self.log_reward_info:
-            for k in self.current_rew_dict:
-                self.extras[f"r_{k}"] = self.current_rew_dict[k]
+    # def compute_reward(self):
+    #     self.current_rew_dict = self.get_reward_dict(
+    #         self.reward_params, self.current_obs_dict, self.actions, self.reward_extras
+    #     )
+    #     if self.log_reward_info:
+    #         for k in self.current_rew_dict:
+    #             self.extras[f"r_{k}"] = self.current_rew_dict[k]
 
-        for key, value in self.current_rew_dict.items():
-            if value.view(-1).shape[0] != self.num_envs:
-                assert False, f"Reward dict key '{key}' has incorrect shape: {value.view(-1).shape}"
-        reward = torch.cat([v.view(-1, 1) for v in self.current_rew_dict.values()], dim=-1).sum(dim=-1)
-        self.extras["task_dist"] = (
-            (
-                self.current_obs_dict["goal_dof_pos"]
-                - self.current_obs_dict["object_dof_pos"][:, self.object_target_dof_idx]
-            )
-            .abs()
-            .flatten()
-        )
-        self.reset_goal_buf = new_successes = torch.where(
-            self.current_rew_dict["reach_bonus"] > 0,
-            torch.ones_like(self.reset_goal_buf),
-            self.reset_goal_buf,
-        )
-        new_successes = new_successes.float()
-        self.successes += new_successes
-        resets = torch.where(
-            self.current_rew_dict["fall_penalty"] < 0,
-            torch.ones_like(self.reset_buf),
-            self.reset_buf,
-        )
-        resets = resets | torch.where(
-            self.progress_buf >= self.max_episode_length,
-            torch.ones_like(self.reset_buf),
-            resets,
-        )
-        if self.max_consecutive_successes > 0:
-            resets = torch.where(
-                self.successes >= self.max_consecutive_successes,
-                torch.ones_like(resets),
-                resets,
-            )
-            reward = torch.where(
-                self.progress_buf >= self.max_episode_length,
-                reward + 0.5 * self.current_rew_dict["fall_penalty"],
-                reward,
-            )
+    #     for key, value in self.current_rew_dict.items():
+    #         if value.view(-1).shape[0] != self.num_envs:
+    #             assert False, f"Reward dict key '{key}' has incorrect shape: {value.view(-1).shape}"
+    #     reward = torch.cat([v.view(-1, 1) for v in self.current_rew_dict.values()], dim=-1).sum(dim=-1)
+    #     self.extras["task_dist"] = (
+    #         (
+    #             self.current_obs_dict["goal_dof_pos"]
+    #             - self.current_obs_dict["object_dof_pos"][:, self.object_target_dof_idx]
+    #         )
+    #         .abs()
+    #         .flatten()
+    #     )
+    #     self.reset_goal_buf = new_successes = torch.where(
+    #         self.current_rew_dict["reach_bonus"] > 0,
+    #         torch.ones_like(self.reset_goal_buf),
+    #         self.reset_goal_buf,
+    #     )
+    #     new_successes = new_successes.float()
+    #     self.successes += new_successes
+    #     resets = torch.where(
+    #         self.current_rew_dict["fall_penalty"] < 0,
+    #         torch.ones_like(self.reset_buf),
+    #         self.reset_buf,
+    #     )
+    #     resets = resets | torch.where(
+    #         self.progress_buf >= self.max_episode_length,
+    #         torch.ones_like(self.reset_buf),
+    #         resets,
+    #     )
+    #     if self.max_consecutive_successes > 0:
+    #         resets = torch.where(
+    #             self.successes >= self.max_consecutive_successes,
+    #             torch.ones_like(resets),
+    #             resets,
+    #         )
+    #         reward = torch.where(
+    #             self.progress_buf >= self.max_episode_length,
+    #             reward + 0.5 * self.current_rew_dict["fall_penalty"],
+    #             reward,
+    #         )
 
-        num_resets = resets.sum()
-        self.reset_buf[:] = resets
+    #     num_resets = resets.sum()
+    #     self.reset_buf[:] = resets
 
-        finished_cons_successes = torch.sum(self.successes * resets.float(), dim=-1)
-        self.consecutive_successes = torch.where(
-            num_resets > 0,
-            self.av_factor * finished_cons_successes / num_resets + (1.0 - self.av_factor) * self.consecutive_successes,
-            self.consecutive_successes,
-        )
-        self.rew_buf[:] = reward
+    #     finished_cons_successes = torch.sum(self.successes * resets.float(), dim=-1)
+    #     self.consecutive_successes = torch.where(
+    #         num_resets > 0,
+    #         self.av_factor * finished_cons_successes / num_resets + (1.0 - self.av_factor) * self.consecutive_successes,
+    #         self.consecutive_successes,
+    #     )
+    #     self.rew_buf[:] = reward
 
-    @staticmethod
-    def get_reward_dict(reward_params, obs_dict, actions, reward_extras):
-        if "actions" not in obs_dict:
-            reward_extras["actions"] = actions
-        rew_dict = {}
-        for k, (cost_fn, rew_terms, rew_scale) in reward_params.items():
-            rew_args = []
-            for arg in rew_terms:
-                if isinstance(arg, (tuple, list, dict)):
-                    rew_args += [arg[k] for k in arg]
-                elif isinstance(arg, str) and arg in reward_extras:
-                    rew_args.append(reward_extras[arg])
-                elif isinstance(arg, str) and arg in obs_dict:
-                    rew_args.append(obs_dict[arg])
-                elif isinstance(arg, (float, np.ndarray)):
-                    rew_args.append(arg)
-                else:
-                    raise TypeError("Invalid argument for reward function {}, ('{}')".format(k, arg))
-            v = cost_fn(*rew_args) * rew_scale
-            rew_dict[k] = v.view(-1)
-        return rew_dict
+    # @staticmethod
+    # def get_reward_dict(reward_params, obs_dict, actions, reward_extras):
+    #     if "actions" not in obs_dict:
+    #         reward_extras["actions"] = actions
+    #     rew_dict = {}
+    #     for k, (cost_fn, rew_terms, rew_scale) in reward_params.items():
+    #         rew_args = []
+    #         for arg in rew_terms:
+    #             if isinstance(arg, (tuple, list, dict)):
+    #                 rew_args += [arg[k] for k in arg]
+    #             elif isinstance(arg, str) and arg in reward_extras:
+    #                 rew_args.append(reward_extras[arg])
+    #             elif isinstance(arg, str) and arg in obs_dict:
+    #                 rew_args.append(obs_dict[arg])
+    #             elif isinstance(arg, (float, np.ndarray)):
+    #                 rew_args.append(arg)
+    #             else:
+    #                 raise TypeError("Invalid argument for reward function {}, ('{}')".format(k, arg))
+    #         v = cost_fn(*rew_args) * rew_scale
+    #         rew_dict[k] = v.view(-1)
+    #     return rew_dict
 
-    def _check_success(self):
-        obs_dict = self.current_obs_dict
-        task_dist = self.extras.get(
-            "task_dist",
-            torch.abs(obs_dict["object_dof_pos"] - obs_dict["goal_dof_pos"]),
-        )
-        return torch.where(
-            torch.abs(task_dist) <= self.success_tolerance,
-            torch.ones_like(self.reset_goal_buf),
-            torch.zeros_like(self.reset_goal_buf),
-        )
+    # def _check_success(self):
+    #     obs_dict = self.current_obs_dict
+    #     task_dist = self.extras.get(
+    #         "task_dist",
+    #         torch.abs(obs_dict["object_dof_pos"] - obs_dict["goal_dof_pos"]),
+    #     )
+    #     return torch.where(
+    #         torch.abs(task_dist) <= self.success_tolerance,
+    #         torch.ones_like(self.reset_goal_buf),
+    #         torch.zeros_like(self.reset_goal_buf),
+    #     )
 
-    def debug_visualization(self):
-        # draw axes on target object
-        self.gym.clear_lines(self.viewer)
-        self.gym.refresh_rigid_body_state_tensor(self.sim)
-        # vec3 color red
-        color = gymapi.Vec3(0.85, 0.1, 0.1)
-        for env in map(lambda x: self.envs[x], self.get_hand_in_contact().nonzero()):
-            self.gym.draw_env_rigid_contacts(self.viewer, env, color, 1.0, True)
+    # def debug_visualization(self):
+    #     # draw axes on target object
+    #     self.gym.clear_lines(self.viewer)
+    #     self.gym.refresh_rigid_body_state_tensor(self.sim)
+    #     # vec3 color red
+    #     color = gymapi.Vec3(0.85, 0.1, 0.1)
+    #     for env in map(lambda x: self.envs[x], self.get_hand_in_contact().nonzero()):
+    #         self.gym.draw_env_rigid_contacts(self.viewer, env, color, 1.0, True)
 
-        for i in range(self.num_envs):
-            targetx = (
-                (
-                    self.current_obs_dict["hand_palm_pos"][i]
-                    + quat_apply(
-                        self.current_obs_dict["hand_palm_quat"][i],
-                        to_torch([1, 0, 0], device=self.device) * 0.2,
-                    )
-                )
-                .cpu()
-                .numpy()
-            )
-            targety = (
-                (
-                    self.current_obs_dict["hand_palm_pos"][i]
-                    + quat_apply(
-                        self.current_obs_dict["hand_palm_quat"][i],
-                        to_torch([0, 1, 0], device=self.device) * 0.2,
-                    )
-                )
-                .cpu()
-                .numpy()
-            )
-            targetz = (
-                (
-                    self.current_obs_dict["hand_palm_pos"][i]
-                    + quat_apply(
-                        self.current_obs_dict["hand_palm_quat"][i],
-                        to_torch([0, 0, 1], device=self.device) * 0.2,
-                    )
-                )
-                .cpu()
-                .numpy()
-            )
+    #     for i in range(self.num_envs):
+    #         targetx = (
+    #             (
+    #                 self.current_obs_dict["hand_palm_pos"][i]
+    #                 + quat_apply(
+    #                     self.current_obs_dict["hand_palm_quat"][i],
+    #                     to_torch([1, 0, 0], device=self.device) * 0.2,
+    #                 )
+    #             )
+    #             .cpu()
+    #             .numpy()
+    #         )
+    #         targety = (
+    #             (
+    #                 self.current_obs_dict["hand_palm_pos"][i]
+    #                 + quat_apply(
+    #                     self.current_obs_dict["hand_palm_quat"][i],
+    #                     to_torch([0, 1, 0], device=self.device) * 0.2,
+    #                 )
+    #             )
+    #             .cpu()
+    #             .numpy()
+    #         )
+    #         targetz = (
+    #             (
+    #                 self.current_obs_dict["hand_palm_pos"][i]
+    #                 + quat_apply(
+    #                     self.current_obs_dict["hand_palm_quat"][i],
+    #                     to_torch([0, 0, 1], device=self.device) * 0.2,
+    #                 )
+    #             )
+    #             .cpu()
+    #             .numpy()
+    #         )
 
-            p0 = (
-                self.current_obs_dict["hand_palm_pos"][i].cpu().numpy()
-            )  # + self.goal_displacement_tensor.cpu().numpy()
-            self.gym.add_lines(
-                self.viewer,
-                self.envs[i],
-                1,
-                [p0[0], p0[1], p0[2], targetx[0], targetx[1], targetx[2]],
-                [0.85, 0.1, 0.1],
-            )
-            self.gym.add_lines(
-                self.viewer,
-                self.envs[i],
-                1,
-                [p0[0], p0[1], p0[2], targety[0], targety[1], targety[2]],
-                [0.1, 0.85, 0.1],
-            )
-            self.gym.add_lines(
-                self.viewer,
-                self.envs[i],
-                1,
-                [p0[0], p0[1], p0[2], targetz[0], targetz[1], targetz[2]],
-                [0.1, 0.1, 0.85],
-            )
+    #         p0 = (
+    #             self.current_obs_dict["hand_palm_pos"][i].cpu().numpy()
+    #         )  # + self.goal_displacement_tensor.cpu().numpy()
+    #         self.gym.add_lines(
+    #             self.viewer,
+    #             self.envs[i],
+    #             1,
+    #             [p0[0], p0[1], p0[2], targetx[0], targetx[1], targetx[2]],
+    #             [0.85, 0.1, 0.1],
+    #         )
+    #         self.gym.add_lines(
+    #             self.viewer,
+    #             self.envs[i],
+    #             1,
+    #             [p0[0], p0[1], p0[2], targety[0], targety[1], targety[2]],
+    #             [0.1, 0.85, 0.1],
+    #         )
+    #         self.gym.add_lines(
+    #             self.viewer,
+    #             self.envs[i],
+    #             1,
+    #             [p0[0], p0[1], p0[2], targetz[0], targetz[1], targetz[2]],
+    #             [0.1, 0.1, 0.85],
+    #         )
 
     def compute_observations(self, skip_manipulability=False):
         # print("refreshing (compute_observations in post_physics_step)")
@@ -1553,8 +1529,6 @@ class ArticulateTask(VecTask, IsaacGymCameraBase):
         obs_dict["object_instance_one_hot"] = object_instance_one_hot.to(self.device)
         obs_dict["object_type_one_hot"] = object_type_one_hot.to(self.device)
 
-        print("self.env_num_bodies", self.env_num_bodies)
-
         # checking for the word "manipulability" in the reward_params keys
         if not skip_manipulability and any(["manipulability" in key for key in self.reward_params.keys()]):
             # creating copies of every variable manipulability interacts with
@@ -1585,7 +1559,6 @@ class ArticulateTask(VecTask, IsaacGymCameraBase):
                 "vel_obs_scale": float(self.vel_obs_scale),
                 "num_objects": int(self.num_objects),
                 "env_num_bodies": int(self.env_num_bodies),
-                # "env_num_bodies": self.env_num_bodies.clone().to(self.device),
                 "goal_states": self.goal_states.clone().to(self.device),
                 "hand_init_pos": self.hand_init_pos.clone().to(self.device),
                 "hand_init_quat": self.hand_init_quat.clone().to(self.device),
@@ -1636,7 +1609,9 @@ class ArticulateTask(VecTask, IsaacGymCameraBase):
             # assert torch.allclose(
             #     self.prev_bufs_manip["prev_rigid_body_tensor"], manip_args["rigid_body_states"]
             # ), "rigid_body_states is wrong!"
+
         self.current_obs_dict = obs_dict
+        
         if not self.use_dict_obs:
             # for key in self.obs_keys:
             #     if key in obs_dict:
@@ -1858,3 +1833,108 @@ class ArticulateTaskCamera(ArticulateTask):
             self.camera_tensors_list.append(
                 self.create_tensors_for_env_cameras(env_ptr, env_camera_handles, camera_spec)
             )
+
+
+def get_action(t):
+        actions =  torch_utils.unscale(env.shadow_hand_dof_default_pos, #.repeat(2, 1),
+                                    env.shadow_hand_dof_lower_limits, env.shadow_hand_dof_upper_limits).numpy()
+        t += 6
+        scale = .5 if t > 250 else .25
+        actions[:, 0] = - (np.sin(t-6/250 * np.pi))
+        return torch.tensor(actions, device=env.device).float()
+
+def optimize_action(action, manipulability, obj_curr, obj_des, max_iters=10, alpha=1.):
+    for i in range(max_iters):
+        C = torch.norm(obj_curr - obj_des)
+        M = manipulability
+        print("cost", C)
+        dC = 2 * (M @ M.T) @ action - 2 * M @ (obj_curr - obj_des)
+        print("cost grad", dC)
+        action -= alpha * dC
+        print("new action", action)
+
+    return action
+
+if __name__ == "__main__":
+    import isaacgymenvs
+    from omegaconf import OmegaConf
+    from hydra import compose, initialize
+    import torch
+    import numpy as np
+    import time
+    import os
+
+    config_path = "../cfg"
+
+    with initialize(config_path=config_path, job_name="test_env"):
+        cfg = compose(config_name="config", overrides=["task=ManipulabilityVectorizedArticulateTaskSpray1", # ArticulateTaskScissorsNew", 
+                                                    "train=ArticulateTaskPPO",
+                                                   "task.env.observationType=full_state",
+                                                   "task.env.objectType=spray_bottle",
+                                                   "sim_device=cpu", 
+                                                   "test=true",
+                                                   "task.env.useRelativeControl=false",
+                                                #    "checkpoint=./runs/full_state_spray/nn/full_state_spray.pth",
+                                                   "num_envs=44"
+                                                   ])
+
+    env = isaacgymenvs.make(cfg.seed, cfg.task, cfg.num_envs, cfg.sim_device,
+                    cfg.rl_device, cfg.graphics_device_id, cfg.headless,
+                    cfg.multi_gpu, cfg.capture_video, cfg.force_render, cfg)
+    
+    
+    
+    from isaacgym import torch_utils
+    
+    import pickle
+    transform = env.gym.get_viewer_camera_transform(env.viewer, env.envs[0])
+    pos = transform.p
+    print("position", pos.x, pos.y, pos.z)
+
+    rot = transform.r
+    print("rotation", rot.x, rot.y, rot.z, rot.w)
+    pickle.dump(transform, open('allegro_viewer.pkl', 'wb'))
+    transform = pickle.load(open('allegro_viewer.pkl', 'rb'))
+    cam_pos = gymapi.Vec3()
+    cam_pos.x = 0.4
+    cam_pos.y = -0.75
+    cam_pos.z = 1.5
+    cam_target = gymapi.Vec3()
+    cam_target.x = 0.4
+    cam_target.y = 0.4
+    env.gym.viewer_camera_look_at(env.viewer, None, cam_pos, cam_target)
+    
+    print(env.shadow_hand_dof_pos[0])
+    print("env.num_envs", env.num_envs)
+    actions = torch.zeros(1000, env.num_envs, 22)
+    # actions = torch.sin(torch.arange(0, 1000) / 10).unsqueeze(1).repeat(1, 22).unsqueeze(1).repeat(1, env.num_envs, 1)
+
+    obs, r, done, info = env.step(actions[0])
+
+    t = 0
+    hand_vels, palm_pos = [], []
+    dof_pos = []
+
+    # while True:
+    # while t < 500:
+    for action in actions:
+        t += 1
+        # action = get_action(-6)
+        action = optimize_action(action[0], env.current_obs_dict["manipulability"], env.current_obs_dict["object_pose"][0], env.current_obs_dict["goal_pose"][0])
+        action = action.unsqueeze(0).repeat(env.num_envs, 1)
+        obs, r, done, info = env.step(action)
+        # print(obs)
+        # print("manipulability", env.current_obs_dict["manipulability"])
+        manipulability = env.current_obs_dict["manipulability"]
+
+        # print("lower:", env.shadow_hand_dof_lower_limits)
+        # print("upper:", env.shadow_hand_dof_upper_limits)
+        # env_ids = done.nonzero(as_tuple=False).squeeze(-1)
+        print("hand dof pos: ", env.shadow_hand_dof_pos[0])
+        # goal_env_ids = env.reset_goal_buf.nonzero(as_tuple=False).squeeze(-1)
+        # env.object_dof_vel[:] = 0
+        # env.object_linvel[:] = 0
+        # env.object_angvel[:] = 0
+        # time.sleep(0.01)
+        # if done.any():
+        #     env.reset_idx(env_ids, goal_env_ids)

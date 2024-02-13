@@ -73,7 +73,7 @@ def manip_step(
         manip_substeps = 1
         for i in range(manip_substeps):
             # if self.force_render:
-            #     self.render()
+                # self.render()
             # print("simulating (manip_step)")
             kwargs["gym"].simulate(kwargs["sim"])
 
@@ -266,13 +266,13 @@ def manip_reset(gym, sim, prev_actor_root_state_tensor, prev_dof_state_tensor, p
         sim,
         gymtorch.unwrap_tensor(prev_actor_root_state_tensor)
     )
-    print("set_actor_root_state_tensor in manip_reset with result", result)
+    # print("set_actor_root_state_tensor in manip_reset with result", result)
 
     result = gym.set_dof_state_tensor(
         sim,
         gymtorch.unwrap_tensor(prev_dof_state_tensor)
     )
-    print("set_dof_state_tensor in manip_reset with result", result)
+    # print("set_dof_state_tensor in manip_reset with result", result)
 
     # print("set_rigid_body_state_tensor in manip_reset")
     # gym.set_rigid_body_state_tensor( # doesn't work (flex backend only)
@@ -284,7 +284,7 @@ def manip_reset(gym, sim, prev_actor_root_state_tensor, prev_dof_state_tensor, p
         sim,
         gymtorch.unwrap_tensor(prev_targets),
     )
-    print("set_dof_position_target_tensor in manip_reset with result", result)
+    # print("set_dof_position_target_tensor in manip_reset with result", result)
 
 def get_manipulability_fd(kwargs):
         ''' Compute the finite difference jacobian to compute manipulability

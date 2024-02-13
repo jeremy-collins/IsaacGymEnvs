@@ -109,7 +109,6 @@ def launch_rlg_hydra(cfg: DictConfig):
             cfg.task = load_config.task
             cfg.train = load_config.train
 
-    print("cfg in train:", cfg)
     cfg_dict = omegaconf_to_dict(cfg)
     print_dict(cfg_dict)
 
@@ -122,8 +121,6 @@ def launch_rlg_hydra(cfg: DictConfig):
     # sets seed. if seed is -1 will pick a random one
     cfg.seed = set_seed(cfg.seed, torch_deterministic=cfg.torch_deterministic, rank=global_rank)
 
-    print("cfg to copy:", cfg)
-    
     def create_isaacgym_env(**kwargs):
         envs = isaacgymenvs.make(
             cfg.seed,
