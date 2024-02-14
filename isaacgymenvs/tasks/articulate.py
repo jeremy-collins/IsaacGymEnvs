@@ -962,11 +962,6 @@ class ArticulateTask(VecTask, IsaacGymCameraBase):
             )
             # print("set_dof_state_tensor_indexed in reset_target_pose with result: ", result)
 
-            # zeroes velocities
-            self.root_state_tensor[self.goal_object_indices[env_ids], 7:13] = torch.zeros_like(
-                self.root_state_tensor[self.goal_object_indices[env_ids], 7:13]
-            )
-
         if apply_reset and self.load_goal_asset:
             # print("applying reset in reset_target_pose at", env_ids)
             goal_object_indices = self.goal_object_indices[env_ids].to(torch.long)
@@ -982,6 +977,7 @@ class ArticulateTask(VecTask, IsaacGymCameraBase):
                 self.prev_bufs_manip["prev_actor_root_state_tensor"][goal_object_indices] = self.root_state_tensor[
                     goal_object_indices
                 ]
+
 
         self.reset_goal_buf[env_ids] = 0
 
