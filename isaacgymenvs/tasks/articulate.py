@@ -12,7 +12,7 @@ from omegaconf import DictConfig, ListConfig
 from isaacgymenvs.utils import rewards
 from isaacgymenvs.tasks.utils import IsaacGymCameraBase
 from omegaconf import OmegaConf
-from .base.vec_task import VecTask
+from tasks.base.vec_task import VecTask
 
 SUPPORTED_PARTNET_OBJECTS = [
     "dispenser",
@@ -1770,3 +1770,115 @@ class ArticulateTaskCamera(ArticulateTask):
             self.camera_tensors_list.append(
                 self.create_tensors_for_env_cameras(env_ptr, env_camera_handles, camera_spec)
             )
+
+def get_action(t):
+    actions =  torch_utils.unscale(env.shadow_hand_dof_default_pos, #.repeat(2, 1),
+                                env.shadow_hand_dof_lower_limits, env.shadow_hand_dof_upper_limits).numpy()
+    t += 6
+    scale = .5 if t > 250 else .25
+    actions[:, 0] = - (np.sin(t-6/250 * np.pi))
+    return torch.tensor(actions, device=env.device).float()
+
+def optimize_action(action, manipulability, obj_curr, obj_des, max_iters=100, alpha=.00001):
+    for i in range(max_iters):
+        C = torch.norm(obj_curr - obj_des)
+        M = manipulability
+        print("cost", C)
+        dC = 2 * (M @ M.T) @ action - 2 * M @ (obj_curr - obj_des)
+        print("cost grad", dC)
+        action -= alpha * dC
+        print("new action", action)
+    return action
+                                                   
+if __name__ == "__main__":
+    import isaacgymenvs
+    from omegaconf import OmegaConf
+    from hydra import compose, initialize
+    import torch
+    import numpy as np
+    import time
+    import os
+
+    config_path = "../cfg"
+
+    with initialize(config_path=config_path, job_name="test_env"):
+        cfg = compose(config_name="config", overrides=["task=ManipulabilityVectorizedArticulateTaskSpray1", # task=ArticulateTaskScissorsNew", # 
+                                                    "train=ArticulateTaskPPO",
+                                                   "task.env.observationType=full_state",
+                                                   "task.env.objectType=spray_bottle",
+                                                   "sim_device=cpu", 
+                                                   "test=true",
+                                                   "task.env.useRelativeControl=true",
+                                                   "+task.env.hand_init_path=allegro_hand_dof_default_pos_spray_close.npy",
+                                                #    "task.env.resetDofPosRandomInterval=0.",
+                                                #    "task.env.load_default_pos=true",
+                                                #    "checkpoint=./runs/full_state_spray/nn/full_state_spray.pth",
+                                                   "num_envs=44"
+                                                   ])
+
+    env = isaacgymenvs.make(cfg.seed, cfg.task, cfg.num_envs, cfg.sim_device,
+                    cfg.rl_device, cfg.graphics_device_id, cfg.headless,
+                    cfg.multi_gpu, cfg.capture_video, cfg.force_render, cfg)
+    
+    
+    from isaacgym import torch_utils
+    
+    import pickle
+    transform = env.gym.get_viewer_camera_transform(env.viewer, env.envs[0])
+    pos = transform.p
+    print("position", pos.x, pos.y, pos.z)
+
+    rot = transform.r
+    print("rotation", rot.x, rot.y, rot.z, rot.w)
+    pickle.dump(transform, open('allegro_viewer.pkl', 'wb'))
+    transform = pickle.load(open('allegro_viewer.pkl', 'rb'))
+    cam_pos = gymapi.Vec3()
+    cam_pos.x = 0.4
+    cam_pos.y = -0.75
+    cam_pos.z = 1.5
+    cam_target = gymapi.Vec3()
+    cam_target.x = 0.4
+    cam_target.y = 0.4
+    env.gym.viewer_camera_look_at(env.viewer, None, cam_pos, cam_target)
+    
+    print(env.shadow_hand_dof_pos[0])
+    print("env.num_envs", env.num_envs)
+    actions = torch.zeros(1000, env.num_envs, 22)
+    # actions = torch.sin(torch.arange(0, 1000) / 10).unsqueeze(1).repeat(1, 22).unsqueeze(1).repeat(1, env.num_envs, 1)
+
+    # # setting dof states to loaded npy file
+    # env.shadow_hand_dof_pos = torch.tensor(np.load("allegro_hand_dof_default_pos_spray_close.npy"), device=env.device).float()
+    # env.shadow_hand_dof_vel = torch.zeros_like(env.shadow_hand_dof_pos)
+    # env.shadow_hand_dof_lower_limits = torch.tensor(env.shadow_hand_dof_lower_limits, device=env.device).float()
+    # env.shadow_hand_dof_upper_limits = torch.tensor(env.shadow_hand_dof_upper_limits, device=env.device).float()
+
+
+    obs, r, done, info = env.step(actions[0])
+
+    t = 0
+    hand_vels, palm_pos = [], []
+    dof_pos = []
+
+    # while True:
+    # while t < 500:
+    for action in actions:
+        t += 1
+        # action = get_action(-6)
+        action = optimize_action(action[0], env.current_obs_dict["manipulability"], env.current_obs_dict["object_pose"][0], env.current_obs_dict["goal_pose"][0])
+        action = action.unsqueeze(0).repeat(env.num_envs, 1)
+        obs, r, done, info = env.step(action)
+        # print(obs)
+        print("manipulability", env.current_obs_dict["manipulability"])
+        # manipulability = env.current_obs_dict["manipulability"]
+
+        # print("lower:", env.shadow_hand_dof_lower_limits)
+        # print("upper:", env.shadow_hand_dof_upper_limits)
+        # env_ids = done.nonzero(as_tuple=False).squeeze(-1)
+        print("hand dof pos: ", env.shadow_hand_dof_pos[0])
+        # goal_env_ids = env.reset_goal_buf.nonzero(as_tuple=False).squeeze(-1)
+        # env.object_dof_vel[:] = 0
+        # env.object_linvel[:] = 0
+        # env.object_angvel[:] = 0
+        # time.sleep(0.01)
+        # if done.any():
+        #     env.reset_idx(env_ids, goal_env_ids)
