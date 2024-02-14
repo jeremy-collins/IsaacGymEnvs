@@ -1,0 +1,25 @@
+defaults:
+  - ArticulateTaskNew
+  - _self_
+
+# if given, will override the device setting in gym.
+env:
+  successTolerance: 0.05
+  objectType: 
+    # - "dispenser"
+    - "scissors" # can be block, egg or pen
+  objectInstance:
+    scissors:
+      - 3
+      # - 1
+      # - 2
+      # - 3
+  objectDofName: "joint_0"
+  objectDofTargetPos: 
+    - -0.6
+    # - -0.36
+    # - 0.6
+    # - -0.6
+  objectStiffness: 0
+  objectDamping: 0.5
+  fixObjectBase: true

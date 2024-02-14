@@ -1,4 +1,4 @@
-action_penalty:
+action_penalty4:
   reward_fn_partial: 
     _partial_: true
     _target_: isaacgymenvs.utils.rewards.action_penalty

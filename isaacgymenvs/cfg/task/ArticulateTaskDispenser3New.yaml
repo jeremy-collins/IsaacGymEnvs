@@ -1,0 +1,18 @@
+defaults:
+  - ArticulateTaskNew
+  - _self_
+
+env:
+  # reward -> dictionary
+  successTolerance: 0.005
+    
+  objectType: 
+    - "dispenser"
+    # - "spray_bottle" # can be block, egg or pen
+  objectDofName: "joint_0"
+  objectInstance:
+    dispenser: [2]
+  objectDofTargetPos: 
+    - 0.025
+    # - 0.075  # 0.05 for spray_bottle
+    # - 0.08  # 0.05 for spray_bottle

@@ -1,7 +1,7 @@
 videos
 /isaacgymenvs/logs
 *train_dir*
-*wandb*
+*wandb/*
 *ige_logs*
 *.egg-info
 /.vs
@@ -24,10 +24,15 @@ _doxygen
 /isaacgymenvs/balance_bot.xml
 /isaacgymenvs/quadcopter.xml
 /isaacgymenvs/ingenuity.xml
-logs*
+*logs*
 nn/
-runs/
+*runs*
 .idea
 outputs/
 *.hydra*
 /isaacgymenvs/wandb
+*multirun/*
+notebooks/*
+# isaacgymenvs/runs
+.git-copy/
+*.ipynb_checkpoints/

@@ -46,9 +46,13 @@ env:
   fallDistance: 0.24
   fallPenalty: 0.0
 
-  objectType: "dispenser" # can be block, egg or pen
-  objectDofName: "joint_2"
-  objectDofTargetPos: 0.015  # 0.05 for spray_bottle
+  objectType: "spray_bottle" # can be block, egg or pen
+  objectDofName: "joint_0"
+  objectDofTargetPos: 0.075  # 0.05 for spray_bottle
+  objectMass: 10
+  objectStiffness: 3
+  objectDamping: 0.1
+  fixObjectBase: false
   observationType: "full_state" # can be "no_vel", "full_state", "full"
   asymmetric_observations: False
   successTolerance: 0.005

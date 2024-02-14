@@ -1,0 +1,38 @@
+defaults:
+  - ArticulateTaskNew
+  - _self_
+
+name: ArticulateTaskCamera
+physics_engine: ${..physics_engine}
+
+# if given, will override the device setting in gym.
+env:
+  # set to True if you use camera sensors in the environment
+  enableCameraSensors: True
+  camera_spec: 
+    hand_camera: ${task.env.cameraSpec.wrist_camera}
+    fixed_camera: ${task.env.cameraSpec.fixed_camera}
+  useDictObs: True
+  obsKeys:  # need to include this if use_dict_obs = True 
+    - hand_joint_pos
+    - hand_joint_vel
+    - object_pos
+    - object_quat
+    - goal_pos
+    - goal_quat
+    - object_lin_vel
+    - object_ang_vel
+    - object_dof_pos
+    - goal_dof_pos
+    - hand_palm_pos
+    - hand_palm_quat
+    - object_type_one_hot
+    - object_instance_one_hot
+    - actions
+    - hand_camera
+
+  # need to include obsDims if use_dict_obs = True 
+  # e.g.
+  # obsDims:
+  #   obs: (100,)
+  #   hand_camera: (64, 64, 3)

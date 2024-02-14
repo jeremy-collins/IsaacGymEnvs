@@ -25,15 +25,17 @@
 # CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
 # OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
-
-import copy
+import os
+import time
+from datetime import datetime
+from os.path import join
 from typing import Dict, Any, Tuple, List, Set
 
 import gym
 from gym import spaces
 
 from isaacgym import gymtorch, gymapi
-from isaacgym.torch_utils import to_torch
+from isaacgymenvs.utils.torch_jit_utils import to_torch
 from isaacgymenvs.utils.dr_utils import (
     get_property_setter_map,
     get_property_getter_map,
@@ -107,7 +109,7 @@ class Env(ABC):
         # if training in a headless mode
         self.headless = headless
 
-        enable_camera_sensors = config.get("enableCameraSensors", False)
+        enable_camera_sensors = config["env"].get("enableCameraSensors", False)
         self.graphics_device_id = graphics_device_id
         if enable_camera_sensors == False and self.headless == True:
             self.graphics_device_id = -1
@@ -119,13 +121,40 @@ class Env(ABC):
 
         self.num_observations = config["env"].get("numObservations", 0)
         self.num_states = config["env"].get("numStates", 0)
+        self.use_dict_obs = config["env"].get(
+            "useDictObs", False
+        )  # used for multi-agent environments
 
-        self.obs_space = spaces.Box(
-            np.ones(self.num_obs) * -np.Inf, np.ones(self.num_obs) * np.Inf
-        )
-        self.state_space = spaces.Box(
-            np.ones(self.num_states) * -np.Inf, np.ones(self.num_states) * np.Inf
-        )
+        self.obs_dims = config["env"].get("obsDims", None)
+        if self.use_dict_obs:
+            self.obs_space = spaces.Dict(
+                {
+                    k: spaces.Box(
+                        np.ones(shape=dims) * -np.Inf, np.ones(shape=dims) * np.Inf
+                    )
+                    for k, dims in self.obs_dims.items()
+                }
+            )
+
+            self.state_dims = config["env"].get("stateDims", {})
+            self.state_space = spaces.Dict(
+                {
+                    k: spaces.Box(
+                        np.ones(shape=dims) * -np.Inf, np.ones(shape=dims) * np.Inf
+                    )
+                    for k, dims in self.state_dims.items()
+                }
+            )
+        else:
+            self.num_observations = config["env"]["numObservations"]
+            self.num_states = config["env"].get("numStates", 0)
+
+            self.obs_space = spaces.Box(
+                np.ones(self.num_obs) * -np.Inf, np.ones(self.num_obs) * np.Inf
+            )
+            self.state_space = spaces.Box(
+                np.ones(self.num_states) * -np.Inf, np.ones(self.num_states) * np.Inf
+            )
 
         self.num_actions = config["env"]["numActions"]
         self.control_freq_inv = config["env"].get("controlFrequencyInv", 1)
@@ -142,7 +171,18 @@ class Env(ABC):
         # The learning algorithm tracks the total number of frames since the beginning of training and accounts for
         # experiments restart/resumes. This means this number can be > 0 right after initialization if we resume the
         # experiment.
-        self.total_train_env_frames = 0
+        self.total_train_env_frames: int = 0
+
+        # number of control steps
+        self.control_steps: int = 0
+
+        self.render_fps: int = config["env"].get("renderFPS", -1)
+        self.last_frame_time: float = 0.0
+
+        self.record_frames: bool = False
+        self.record_frames_dir = join(
+            "recorded_frames", datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+        )
 
     @abc.abstractmethod
     def allocate_buffers(self):
@@ -199,6 +239,25 @@ class Env(ABC):
         """Get the number of observations in the environment."""
         return self.num_observations
 
+    def set_train_info(self, env_frames, *args, **kwargs):
+        """
+        Send the information in the direction algo->environment.
+        Most common use case: tell the environment how far along we are in the training process. This is useful
+        for implementing curriculums and things such as that.
+        """
+        self.total_train_env_frames = env_frames
+        # print(f'env_frames updated to {self.total_train_env_frames}')
+
+    def get_env_state(self):
+        """
+        Return serializable environment state to be saved to checkpoint.
+        Can be used for stateful training sessions, i.e. with adaptive curriculums.
+        """
+        return None
+
+    def set_env_state(self, env_state):
+        pass
+
 
 class VecTask(Env):
     metadata = {"render.modes": ["human", "rgb_array"], "video.frames_per_second": 24}
@@ -245,6 +304,8 @@ class VecTask(Env):
             msg = f"Invalid physics engine backend: {self.cfg['physics_engine']}"
             raise ValueError(msg)
 
+        self.dt: float = self.sim_params.dt
+
         # optimization flags for pytorch JIT
         torch._C._jit_set_profiling_mode(False)
         torch._C._jit_set_profiling_executor(False)
@@ -267,19 +328,8 @@ class VecTask(Env):
         self.gym.prepare_sim(self.sim)
         self.sim_initialized = True
 
-        # set the camera position based on up axis
-        sim_params = self.gym.get_sim_params(self.sim)
-        if sim_params.up_axis == gymapi.UP_AXIS_Z:
-            self._cam_pos = gymapi.Vec3(20.0, 25.0, 3.0)
-            self._cam_target = gymapi.Vec3(10.0, 15.0, 0.0)
-        else:
-            self._cam_pos = gymapi.Vec3(20.0, 3.0, 25.0)
-            self._cam_target = gymapi.Vec3(10.0, 0.0, 15.0)
-
         self.set_viewer()
         self.allocate_buffers()
-
-        self.obs_dict = {}
 
     def set_viewer(self):
         """Create the viewer."""
@@ -298,10 +348,20 @@ class VecTask(Env):
             self.gym.subscribe_viewer_keyboard_event(
                 self.viewer, gymapi.KEY_V, "toggle_viewer_sync"
             )
-
-            self.gym.viewer_camera_look_at(
-                self.viewer, None, self._cam_pos, self._cam_target
+            self.gym.subscribe_viewer_keyboard_event(
+                self.viewer, gymapi.KEY_R, "record_frames"
             )
+
+            # set the camera position based on up axis
+            sim_params = self.gym.get_sim_params(self.sim)
+            if sim_params.up_axis == gymapi.UP_AXIS_Z:
+                cam_pos = gymapi.Vec3(20.0, 25.0, 3.0)
+                cam_target = gymapi.Vec3(10.0, 15.0, 0.0)
+            else:
+                cam_pos = gymapi.Vec3(20.0, 3.0, 25.0)
+                cam_target = gymapi.Vec3(10.0, 0.0, 15.0)
+
+            self.gym.viewer_camera_look_at(self.viewer, None, cam_pos, cam_target)
 
     def allocate_buffers(self):
         """Allocate the observation, states, etc. buffers.
@@ -312,12 +372,39 @@ class VecTask(Env):
         """
 
         # allocate buffers
-        self.obs_buf = torch.zeros(
-            (self.num_envs, self.num_obs), device=self.device, dtype=torch.float
-        )
-        self.states_buf = torch.zeros(
-            (self.num_envs, self.num_states), device=self.device, dtype=torch.float
-        )
+        if self.use_dict_obs:
+            self.obs_dict = {
+                k: torch.zeros(
+                    (self.num_envs, *dims), device=self.device, dtype=torch.float
+                )
+                for k, dims in self.obs_dims.items()
+            }
+            print("Obs dictionary: ")
+            print(self.obs_dims)
+            for k, dims in self.obs_dims.items():
+                print(f"{k}: {dims}")
+                print(f"{k}: {self.obs_dict[k].shape}")
+
+            self.state_dict = {
+                k: torch.zeros(
+                    (self.num_envs, *dims), device=self.device, dtype=torch.float
+                )
+                for k, dims in self.state_dims.items()
+            }
+            print("State dictionary: ")
+            print(self.state_dims)
+            for k, dims in self.state_dims.items():
+                print(f"{k}: {dims}")
+                print(f"{k}: {self.state_dict[k].shape}")
+        else:
+            self.obs_dict = {}
+            self.obs_buf = torch.zeros(
+                (self.num_envs, self.num_obs), device=self.device, dtype=torch.float
+            )
+            self.states_buf = torch.zeros(
+                (self.num_envs, self.num_states), device=self.device, dtype=torch.float
+            )
+
         self.rew_buf = torch.zeros(self.num_envs, device=self.device, dtype=torch.float)
         self.reset_buf = torch.ones(self.num_envs, device=self.device, dtype=torch.long)
         self.timeout_buf = torch.zeros(
@@ -359,6 +446,13 @@ class VecTask(Env):
 
     def get_state(self):
         """Returns the state buffer of the environment (the privileged observations for asymmetric training)."""
+        if self.use_dict_obs:
+            for k in self.state_dict:
+                self.state_dict[k] = torch.clamp(
+                    self.state_dict[k], -self.clip_obs, self.clip_obs
+                ).to(self.rl_device)
+            return self.state_dict
+
         return torch.clamp(self.states_buf, -self.clip_obs, self.clip_obs).to(
             self.rl_device
         )
@@ -408,6 +502,8 @@ class VecTask(Env):
         # compute observations, rewards, resets, ...
         self.post_physics_step()
 
+        self.control_steps += 1
+
         # fill time out buffer: set to 1 if we reached the max episode length AND the reset buffer is 1. Timeout == 1 makes sense only if the reset buffer is 1.
         self.timeout_buf = (self.progress_buf >= self.max_episode_length - 1) & (
             self.reset_buf != 0
@@ -421,16 +517,24 @@ class VecTask(Env):
 
         self.extras["time_outs"] = self.timeout_buf.to(self.rl_device)
 
-        self.obs_dict["obs"] = torch.clamp(
-            self.obs_buf, -self.clip_obs, self.clip_obs
-        ).to(self.rl_device)
+        if self.use_dict_obs:
+            obs_and_states_dict = {}
+            obs_and_states_dict["obs"] = {
+                k: self.obs_dict[k] if self.obs_dict[k].dtype == torch.uint8 else torch.clamp(self.obs_dict[k], -self.clip_obs, self.clip_obs)
+                for k in self.obs_dims
+            }
+        else:
+            obs_and_states_dict = self.obs_dict
+            obs_and_states_dict["obs"] = torch.clamp(
+                self.obs_buf, -self.clip_obs, self.clip_obs
+            ).to(self.rl_device)
 
         # asymmetric actor-critic
         if self.num_states > 0:
-            self.obs_dict["states"] = self.get_state()
+            obs_and_states_dict["states"] = self.get_state()
 
         return (
-            self.obs_dict,
+            obs_and_states_dict,
             self.rew_buf.to(self.rl_device),
             self.reset_buf.to(self.rl_device),
             self.extras,
@@ -462,15 +566,28 @@ class VecTask(Env):
         Returns:
             Observation dictionary
         """
-        self.obs_dict["obs"] = torch.clamp(
-            self.obs_buf, -self.clip_obs, self.clip_obs
-        ).to(self.rl_device)
+        obs_and_states_dict = self.obs_dict
+        if self.use_dict_obs:
+            obs_and_states_dict = dict()
+            obs_and_states_dict["obs"] = {
+                k: self.obs_dict[k] if self.obs_dict[k].dtype == torch.uint8 else torch.clamp(self.obs_dict[k], -self.clip_obs, self.clip_obs)
+                for k in self.obs_dims
+                # TODO: add clone in case clamping messes up with other portion of the code e.g. reward from obs.
+                #  For now, not using clone to save memory.
+                # k: torch.clamp(self.obs_dict[k], -self.clip_obs, self.clip_obs).clone() for k in self.obs_dims
+            }
 
-        # asymmetric actor-critic
-        if self.num_states > 0:
-            self.obs_dict["states"] = self.get_state()
+            # asymmetric actor-critic
+            if self.state_dims:
+                obs_and_states_dict["states"] = self.get_state()
+        else:
+            obs_and_states_dict["obs"] = torch.clamp(
+                self.obs_buf, -self.clip_obs, self.clip_obs
+            ).to(self.rl_device)
+            if self.num_states > 0:
+                obs_and_states_dict["states"] = self.get_state()
 
-        return self.obs_dict
+        return obs_and_states_dict
 
     def reset_done(self):
         """Reset the environment.
@@ -480,6 +597,23 @@ class VecTask(Env):
         done_env_ids = self.reset_buf.nonzero(as_tuple=False).flatten()
         if len(done_env_ids) > 0:
             self.reset_idx(done_env_ids)
+        obs_and_states_dict = self.obs_dict
+        if self.use_dict_obs:
+            obs_and_states_dict["obs"] = {
+                k: torch.clamp(self.obs_dict[k], -self.clip_obs, self.clip_obs)
+                for k in self.obs_dims
+                # TODO: add clone in case clamping messes up with other portion of the code e.g. reward from obs.
+                #  For now, not using clone to save memory.
+                # k: torch.clamp(self.obs_dict[k], -self.clip_obs, self.clip_obs).clone() for k in self.obs_dims
+            }
+
+            # asymmetric actor-critic
+            if self.state_dims > 0:
+                obs_and_states_dict["states"] = self.get_state()
+        else:
+            obs_and_states_dict["obs"] = torch.clamp(
+                self.obs_buf, -self.clip_obs, self.clip_obs
+            ).to(self.rl_device)
 
         self.obs_dict["obs"] = torch.clamp(
             self.obs_buf, -self.clip_obs, self.clip_obs
@@ -487,9 +621,9 @@ class VecTask(Env):
 
         # asymmetric actor-critic
         if self.num_states > 0:
-            self.obs_dict["states"] = self.get_state()
+            obs_and_states_dict["states"] = self.get_state()
 
-        return self.obs_dict, done_env_ids
+        return obs_and_states_dict, done_env_ids
 
     def render(self, mode="rgb_array"):
         """Draw the frame to the viewer, and check for keyboard events."""
@@ -504,6 +638,8 @@ class VecTask(Env):
                     sys.exit()
                 elif evt.action == "toggle_viewer_sync" and evt.value > 0:
                     self.enable_viewer_sync = not self.enable_viewer_sync
+                elif evt.action == "record_frames" and evt.value > 0:
+                    self.record_frames = not self.record_frames
 
             # fetch results
             if self.device != "cpu":
@@ -518,22 +654,38 @@ class VecTask(Env):
                 # This synchronizes the physics simulation with the rendering rate.
                 self.gym.sync_frame_time(self.sim)
 
+                # it seems like in some cases sync_frame_time still results in higher-than-realtime framerate
+                # this code will slow down the rendering to real time
+                now = time.time()
+                delta = now - self.last_frame_time
+                if self.render_fps < 0:
+                    # render at control frequency
+                    render_dt = (
+                        self.dt * self.control_freq_inv
+                    )  # render every control step
+                else:
+                    render_dt = 1.0 / self.render_fps
+
+                if delta < render_dt:
+                    time.sleep(render_dt - delta)
+
+                self.last_frame_time = time.time()
+
             else:
                 self.gym.poll_viewer_events(self.viewer)
+
+            if self.record_frames:
+                if not os.path.isdir(self.record_frames_dir):
+                    os.makedirs(self.record_frames_dir, exist_ok=True)
+
+                self.gym.write_viewer_image_to_file(
+                    self.viewer,
+                    join(self.record_frames_dir, f"frame_{self.control_steps}.png"),
+                )
 
             if self.virtual_display and mode == "rgb_array":
                 img = self.virtual_display.grab()
                 return np.array(img)
-
-    def view_env(self, env_idx, cam_pos=None, look_at=None):
-        if self.viewer is not None:
-            env_ptr = self.envs[env_idx]
-            if cam_pos is None:
-                cam_pos = self._cam_pos
-            if look_at is None:
-                look_at = self._look_at
-            self._gym.viewer_camera_look_at(self._viewer, env_ptr, cam_pos, look_at)
-            self.render()
 
     def __parse_sim_params(
         self, physics_engine: str, config_sim: Dict[str, Any]

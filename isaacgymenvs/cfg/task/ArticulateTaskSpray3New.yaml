@@ -1,0 +1,12 @@
+defaults:
+  - ArticulateTaskNew
+  - _self_
+
+env:
+  objectType: 
+    - "spray_bottle" 
+  objectInstance:
+    spray_bottle: 
+      - 2
+  objectDofTargetPos: 
+    - 0.55

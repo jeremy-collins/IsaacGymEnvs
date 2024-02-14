@@ -1,0 +1,13 @@
+defaults:
+  - ArticulateTaskCamera
+  - ArticulateTaskScissorsNew
+  - _self_
+
+# used to create the object
+name: ArticulateTaskCamera
+
+# if given, will override the device setting in gym.
+env:
+  # set to True if you use camera sensors in the environment
+  enableCameraSensors: True
+  # useDictObs: False

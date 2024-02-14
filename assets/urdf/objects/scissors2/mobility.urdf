@@ -1,0 +1,92 @@
+<?xml version="1.0" ?>
+<robot name="partnet_1c2f450311ebe37a95f577622f465c85">
+	<link name="base"/>
+	<link name="link_0">
+		<visual name="blade-5">
+			<origin xyz="-0.0012224415790024424 -0.00309579999999996 -0.0021912877175722212"/>
+			<geometry>
+				<mesh filename="textured_objs/new-5.obj" scale="0.2 0.2 0.2"/>
+			</geometry>
+		</visual>
+		<visual name="handle-6">
+			<origin xyz="-0.0012224415790024424 -0.00309579999999996 -0.0021912877175722212"/>
+			<geometry>
+				<mesh filename="textured_objs/new-4.obj" scale="0.2 0.2 0.2"/>
+			</geometry>
+		</visual>
+		<visual name="handle-6">
+			<origin xyz="-0.0012224415790024424 -0.00309579999999996 -0.0021912877175722212"/>
+			<geometry>
+				<mesh filename="textured_objs/new-3.obj" scale="0.2 0.2 0.2"/>
+			</geometry>
+		</visual>
+		<collision>
+			<origin xyz="-0.0012224415790024424 -0.00309579999999996 -0.0021912877175722212"/>
+			<geometry>
+				<mesh filename="textured_objs/new-5.obj" scale="0.2 0.2 0.2"/>
+			</geometry>
+		</collision>
+		<collision>
+			<origin xyz="-0.0012224415790024424 -0.00309579999999996 -0.0021912877175722212"/>
+			<geometry>
+				<mesh filename="textured_objs/new-4.obj" scale="0.2 0.2 0.2"/>
+			</geometry>
+		</collision>
+		<collision>
+			<origin xyz="-0.0012224415790024424 -0.00309579999999996 -0.0021912877175722212"/>
+			<geometry>
+				<mesh filename="textured_objs/new-3.obj" scale="0.2 0.2 0.2"/>
+			</geometry>
+		</collision>
+	</link>
+	<joint name="joint_0" type="revolute">
+		<origin xyz="0.0012224415790024424 0.00309579999999996 0.0021912877175722212"/>
+		<axis xyz="0 1 0"/>
+		<child link="link_0"/>
+		<parent link="link_1"/>
+		<limit lower="-0.5780530482605221" upper="1.2629202467430969"/>
+	</joint>
+	<link name="link_1">
+		<visual name="blade-7">
+			<origin xyz="0 0 0"/>
+			<geometry>
+				<mesh filename="textured_objs/new-6.obj" scale="0.2 0.2 0.2"/>
+			</geometry>
+		</visual>
+		<visual name="handle-8">
+			<origin xyz="0 0 0"/>
+			<geometry>
+				<mesh filename="textured_objs/new-1.obj" scale="0.2 0.2 0.2"/>
+			</geometry>
+		</visual>
+		<visual name="handle-8">
+			<origin xyz="0 0 0"/>
+			<geometry>
+				<mesh filename="textured_objs/new-7.obj" scale="0.2 0.2 0.2"/>
+			</geometry>
+		</visual>
+		<collision>
+			<origin xyz="0 0 0"/>
+			<geometry>
+				<mesh filename="textured_objs/new-6.obj" scale="0.2 0.2 0.2"/>
+			</geometry>
+		</collision>
+		<collision>
+			<origin xyz="0 0 0"/>
+			<geometry>
+				<mesh filename="textured_objs/new-1.obj" scale="0.2 0.2 0.2"/>
+			</geometry>
+		</collision>
+		<collision>
+			<origin xyz="0 0 0"/>
+			<geometry>
+				<mesh filename="textured_objs/new-7.obj" scale="0.2 0.2 0.2"/>
+			</geometry>
+		</collision>
+	</link>
+	<joint name="joint_1" type="fixed">
+		<origin rpy="1.570796326794897 0 -1.570796326794897" xyz="0 0 0"/>
+		<child link="link_1"/>
+		<parent link="base"/>
+	</joint>
+</robot>

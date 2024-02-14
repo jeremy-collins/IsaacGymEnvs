@@ -60,6 +60,7 @@ env:
    
   fallPenalty: 0.0
 
+  useOneHot: true  
   objectType: 
     # - "dispenser"
     - "spray_bottle" # can be block, egg or pen
@@ -68,7 +69,7 @@ env:
     - 0.075  # 0.05 for spray_bottle
     - 0.08  # 0.05 for spray_bottle
   scaleDofPos: false
-  objectMass: 10
+  objectMass: 1
   objectStiffness: 3
   objectDamping: 0.1
   fixObjectBase: false
@@ -76,6 +77,9 @@ env:
   asymmetric_observations: False
   printNumSuccesses: False
   maxConsecutiveSuccesses: 0
+
+  # set to True if you use camera sensors in the environment
+  enableCameraSensors: False
 
   asset:
     assetFileName: "urdf/kuka_allegro_description/allegro_grasp.urdf"
@@ -88,6 +92,7 @@ env:
       - "urdf/objects/spray_bottle/mobility.urdf"
       - "urdf/objects/spray_bottle2/mobility.urdf"
     assetFileNameDispenser: "urdf/objects/dispenser/mobility.urdf"
+    assetFileNameScissors: "urdf/objects/scissors/mobility.urdf"
 
 task:
   randomize: False
@@ -182,9 +187,6 @@ task:
             distribution: "uniform"
             # schedule: "linear"  # "linear" will scale the current random sample by `min(current num steps, schedule_steps) / schedule_steps`
             # schedule_steps: 30000
-
-  # set to True if you use camera sensors in the environment
-  enableCameraSensors: False
 
 sim:
   dt: 0.01667 # 1/60
