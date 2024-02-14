@@ -81,7 +81,7 @@ class ArticulateTask(VecTask, IsaacGymCameraBase):
         virtual_screen_capture,
         force_render,
     ):
-        torch.autograd.set_detect_anomaly(True) # TODO: remove this
+        torch.autograd.set_detect_anomaly(True)  # TODO: remove this
         self.cfg = cfg
         self.dict_obs_cls = self.cfg["env"].get("useDictObs", False)
         if self.dict_obs_cls:
@@ -499,7 +499,7 @@ class ArticulateTask(VecTask, IsaacGymCameraBase):
             allegro_hand_dof_default_pos = shadow_hand_dof_props["lower"] * 0.65 + shadow_hand_dof_props["upper"] * 0.35
             allegro_hand_dof_default_pos[:6] = 0.0
             # allegro_hand_default_pos[2] = -0.3
-        
+
         # self.sensors = []
         # sensor_pose = gymapi.Transform()
 
@@ -955,7 +955,7 @@ class ArticulateTask(VecTask, IsaacGymCameraBase):
                 len(env_ids),
             )
             # print("set_dof_state_tensor_indexed in reset_target_pose with result: ", result)
-                  
+
             # zeroes velocities
             self.root_state_tensor[self.goal_object_indices[env_ids], 7:13] = torch.zeros_like(
                 self.root_state_tensor[self.goal_object_indices[env_ids], 7:13]
@@ -1079,7 +1079,7 @@ class ArticulateTask(VecTask, IsaacGymCameraBase):
         self.prev_targets[env_ids, : self.num_shadow_hand_dofs] = pos
         self.cur_targets[env_ids, : self.num_shadow_hand_dofs] = pos
 
-        hand_indices = (self.hand_indices[env_ids] // 2).to(torch.int32) # TODO: remove this hack
+        hand_indices = (self.hand_indices[env_ids] // 2).to(torch.int32)  # TODO: remove this hack
 
         if self.prev_bufs_manip is None:
             result = self.gym.set_dof_state_tensor_indexed(
@@ -1115,6 +1115,8 @@ class ArticulateTask(VecTask, IsaacGymCameraBase):
         self.successes[env_ids] = 0
 
     def reset(self):
+        if (self.reset_buf == 1).all() and (self.progress_buf == 0).all():
+            self.reset_idx(torch.arange(self.num_envs, device=self.device))
         self.compute_observations()
         if self.use_image_obs:
             IsaacGymCameraBase.compute_observations(self)
