@@ -1,7 +1,7 @@
 defaults:
   - _self_
 
-fingertip_reach_params:
+null_policy_params:
   action_penalty: ${task.rewards.action_pose_err}
   fall_penalty: ${task.rewards.drop_penalty}
   reach_bonus: ${task.rewards.reach_bonus}

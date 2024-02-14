@@ -20,6 +20,7 @@ defaults:
     - ring_dist
     - joint_limit_penalty
     - fingertip_reach_params
+    - null_policy_params
 
 # used to create the object
 name: ${if:${task.env.enableCameraSensors},ArticulateTaskCamera,ArticulateTask}
@@ -83,6 +84,28 @@ env:
     object_type_one_hot: [7]   # Is 1 if useOneHot=False
     object_instance_one_hot: [5]  # TODO: make variable with default in config.yaml
     actions: [22]
+    index_pos: [3]
+    fingertip_pos: [4, 3]
+    middle_pos: [3]
+    thumb_rot: [4]
+    thumb_pos: [3]
+    index_rot: [4]
+    middle_rot: [4]
+    hand_quat: [4]
+    hand_init_pos: [3]
+    hand_dof_pos: [22]
+    hand_pos: [3]
+    hand_joint_pos_target: [22]
+    object_pose: [7]
+    fingertip_rot: [4, 4]
+    ring_pos: [3]
+    hand_init_quat: [4]
+    fingertip_pose_vel: [4, 10]
+    hand_joint_pos_err: [22]
+    hand_joint_pos_delta: [22]
+    ring_rot: [4]
+    hand_joint_pos_init: [22]
+    fingertip_vel: [4, 3]
     hand_camera: [64, 64, 3]
   
   # create a dict config for obsDims  based on variables in obsKeys
@@ -105,7 +128,7 @@ env:
       camera_pose: [[0.0, -0.35, 0.2], [0.0, 0.0, 0.85090352, 0.52532199]]
 
   asset:
-    assetFileName: "urdf/kuka_allegro_description/allegro_grasp_fixed.urdf"
+    assetFileName: "urdf/kuka_allegro_description/allegro_6dof_wrist.urdf"
     assetFileNameBottle: "urdf/objects/bottle/mobility.urdf"
     assetFileNamePillBottle: "urdf/objects/pill_bottle/mobility.urdf"
     assetFileNameSprayBottle: 
