@@ -1441,6 +1441,7 @@ class ArticulateTask(VecTask, IsaacGymCameraBase):
 
     def compute_observations(self, skip_manipulability=False):
         # print("refreshing (compute_observations in post_physics_step)")
+        prev_hand_dof_pos = self.shadow_hand_dof_pos.clone()
         self.gym.refresh_dof_state_tensor(self.sim)
         self.gym.refresh_actor_root_state_tensor(self.sim)
         self.gym.refresh_rigid_body_state_tensor(self.sim)
@@ -1586,8 +1587,6 @@ class ArticulateTask(VecTask, IsaacGymCameraBase):
         ).squeeze(-2)
         obs_dict["object_instance_one_hot"] = object_instance_one_hot.to(self.device)
         obs_dict["object_type_one_hot"] = object_type_one_hot.to(self.device)
-
-        print("self.env_num_bodies", self.env_num_bodies)
 
         # checking for the word "manipulability" in the reward_params keys
         if not skip_manipulability and any(["manipulability" in key for key in self.reward_params.keys()]):

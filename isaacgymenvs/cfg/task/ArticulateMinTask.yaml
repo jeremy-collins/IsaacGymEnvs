@@ -1,0 +1,56 @@
+defaults:
+  - ArticulateBase
+  - _self_
+
+env:
+  # reward -> dictionary
+  successTolerance: 0.005
+  rewardParams: 
+    task_rew: ${task.rewards.task_reward}
+    hand_dist: ${task.rewards.hand_dist}
+    action_penalty: ${task.rewards.action_penalty}
+    reach_bonus: ${task.rewards.reach_bonus}
+    fall_penalty: ${task.rewards.drop_penalty}
+    hand_rot_reward: ${task.rewards.hand_rot_reward}
+   
+  fallPenalty: 0.0
+
+  useOneHot: true  
+  objectType: 
+    # - "dispenser"
+    - "spray_bottle" # can be block, egg or pen
+  objectDofName: "joint_0"
+  objectDofTargetPos: 
+    - 0.075  # 0.05 for spray_bottle
+    - 0.08  # 0.05 for spray_bottle
+  scaleDofPos: false
+  objectInstance:
+    spray_bottle: [0, 1]
+  objectMass: 1
+  objectStiffness: 3
+  objectDamping: 0.1
+  fixObjectBase: false
+  observationType: "full_state" # can be "no_vel", "full_state", "full"
+  asymmetric_observations: False
+  printNumSuccesses: False
+  maxConsecutiveSuccesses: 100
+
+  # set to True if you use camera sensors in the environment
+  enableCameraSensors: False
+  useDictObs: True
+  obsKeys:  # need to include this if use_dict_obs = True 
+    - hand_joint_pos
+    - hand_joint_vel
+    - object_pos
+    - object_quat
+    - goal_pos
+    - goal_quat
+    - object_lin_vel
+    - object_ang_vel
+    - object_dof_pos
+    - goal_dof_pos
+    - hand_palm_pos
+    - hand_palm_quat
+    - object_type_one_hot
+    - object_instance_one_hot
+    - actions
