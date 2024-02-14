@@ -28,6 +28,7 @@ SUPPORTED_PARTNET_OBJECTS = [
     "bottle",
     "stapler",
     "scissors",
+    "pliers",
 ]
 
 NUM_OBJECT_TYPES = 7
@@ -302,7 +303,7 @@ class ArticulateMinTask(VecTask, IsaacGymCameraBase):
 
         # get gym GPU state tensors
         actor_root_state_tensor = self.gym.acquire_actor_root_state_tensor(self.sim)
-        self.dof_state_tensor = self.gym.acquire_dof_state_tensor(self.sim)
+        dof_state_tensor = self.gym.acquire_dof_state_tensor(self.sim)
         rigid_body_tensor = self.gym.acquire_rigid_body_state_tensor(self.sim)
 
         if self.cfg["env"].get("saveRigidBodyState", False):
@@ -313,7 +314,7 @@ class ArticulateMinTask(VecTask, IsaacGymCameraBase):
         if self.cfg["env"].get("loadRigidBodyState", False):
             assert self.device == "cpu", "saveRigidBodyState only works with CPU tensors!"
             initial_state = np.load("initial_state.npy")
-            result = self.gym.set_sim_rigid_body_states(self.sim, initial_state, gymapi.STATE_ALL)
+            self.gym.set_sim_rigid_body_states(self.sim, initial_state, gymapi.STATE_ALL)
             # print("set_sim_rigid_body_states in init_sim with result: ", result)
             self.gym.simulate(self.sim)
 
@@ -330,7 +331,7 @@ class ArticulateMinTask(VecTask, IsaacGymCameraBase):
         self.gym.refresh_dof_state_tensor(self.sim)
         self.gym.refresh_rigid_body_state_tensor(self.sim)
 
-        self.dof_state = gymtorch.wrap_tensor(self.dof_state_tensor)
+        self.dof_state = gymtorch.wrap_tensor(dof_state_tensor)
         self.shadow_hand_dof_state = self.dof_state.view(self.num_envs, -1, 2)[:, : self.num_shadow_hand_dofs]
         self.shadow_hand_dof_pos = self.shadow_hand_dof_state[..., 0]
         self.shadow_hand_dof_vel = self.shadow_hand_dof_state[..., 1]
@@ -411,7 +412,7 @@ class ArticulateMinTask(VecTask, IsaacGymCameraBase):
             + torch.log(self.force_prob_range[1])
         )
 
-        self.prev_bufs_manip = None
+        self.prev_bufs = None
 
     def create_sim(self):
         self.dt = self.sim_params.dt
@@ -510,7 +511,6 @@ class ArticulateMinTask(VecTask, IsaacGymCameraBase):
         # self.sensors = []
         # sensor_pose = gymapi.Transform()
 
-        start_pose_init = []
         for i in range(self.num_shadow_hand_dofs):
             # self.shadow_hand_dof_default_pos.append(allegro_hand_default_pos[i])
             if self.limit_hand_rotation and 2 < i < 6:
@@ -964,7 +964,7 @@ class ArticulateMinTask(VecTask, IsaacGymCameraBase):
             )
             # print("set_dof_position_target_tensor_indexed in reset_target_pose with result: ", result)
 
-            result = self.gym.set_dof_state_tensor_indexed(
+            self.gym.set_dof_state_tensor_indexed(
                 self.sim,
                 gymtorch.unwrap_tensor(self.dof_state),
                 gymtorch.unwrap_tensor(goal_indices),
@@ -977,21 +977,21 @@ class ArticulateMinTask(VecTask, IsaacGymCameraBase):
                 self.root_state_tensor[self.goal_object_indices[env_ids], 7:13]
             )
 
-        if apply_reset and self.load_goal_asset:
-            # print("applying reset in reset_target_pose at", env_ids)
-            goal_object_indices = self.goal_object_indices[env_ids].to(torch.long)
-            if self.prev_bufs_manip is None:
-                result = self.gym.set_actor_root_state_tensor_indexed(
-                    self.sim,
-                    gymtorch.unwrap_tensor(self.root_state_tensor),
-                    gymtorch.unwrap_tensor(goal_object_indices),
-                    len(env_ids),
-                )
-                # print("set_actor_root_state_tensor_indexed in reset_target_pose with result: ", result)
-            else:
-                self.prev_bufs_manip["prev_actor_root_state_tensor"][goal_object_indices] = self.root_state_tensor[
-                    goal_object_indices
-                ]
+            if apply_reset and self.load_goal_asset:
+                # print("applying reset in reset_target_pose at", env_ids)
+                goal_object_indices = self.goal_object_indices[env_ids].to(torch.long)
+                if self.prev_bufs is None:
+                    self.gym.set_actor_root_state_tensor_indexed(
+                        self.sim,
+                        gymtorch.unwrap_tensor(self.root_state_tensor),
+                        gymtorch.unwrap_tensor(goal_object_indices),
+                        len(env_ids),
+                    )
+                    # print("set_actor_root_state_tensor_indexed in reset_target_pose with result: ", result)
+                else:
+                    self.prev_bufs["prev_actor_root_state_tensor"][goal_object_indices] = self.root_state_tensor[
+                        goal_object_indices
+                    ]
 
         self.reset_goal_buf[env_ids] = 0
 
@@ -1058,8 +1058,8 @@ class ArticulateMinTask(VecTask, IsaacGymCameraBase):
                 ]
         object_indices = torch.unique(torch.cat(object_indices).to(torch.int32))
 
-        if self.prev_bufs_manip is None:
-            result = self.gym.set_actor_root_state_tensor_indexed(
+        if self.prev_bufs is None:
+            self.gym.set_actor_root_state_tensor_indexed(
                 self.sim,
                 gymtorch.unwrap_tensor(self.root_state_tensor),
                 gymtorch.unwrap_tensor(object_indices),
@@ -1067,7 +1067,7 @@ class ArticulateMinTask(VecTask, IsaacGymCameraBase):
             )
             # print("set_actor_root_state_tensor_indexed in reset_idx with result: ", result)
         else:
-            self.prev_bufs_manip["prev_actor_root_state_tensor"][object_indices] = self.root_state_tensor[
+            self.prev_bufs["prev_actor_root_state_tensor"][object_indices] = self.root_state_tensor[
                 object_indices
             ]
 
@@ -1107,8 +1107,8 @@ class ArticulateMinTask(VecTask, IsaacGymCameraBase):
 
         hand_indices = (self.hand_indices[env_ids] // 2).to(torch.int32)  # TODO: remove this hack
 
-        if self.prev_bufs_manip is None:
-            result = self.gym.set_dof_state_tensor_indexed(
+        if self.prev_bufs is None:
+            self.gym.set_dof_state_tensor_indexed(
                 self.sim,
                 gymtorch.unwrap_tensor(self.dof_state),
                 gymtorch.unwrap_tensor(hand_indices),
@@ -1116,7 +1116,7 @@ class ArticulateMinTask(VecTask, IsaacGymCameraBase):
             )
             # print("set_dof_state_tensor_indexed in reset_idx")
 
-            result = self.gym.set_dof_position_target_tensor_indexed(
+            self.gym.set_dof_position_target_tensor_indexed(
                 self.sim,
                 gymtorch.unwrap_tensor(self.prev_targets),
                 gymtorch.unwrap_tensor(hand_indices),
@@ -1126,12 +1126,12 @@ class ArticulateMinTask(VecTask, IsaacGymCameraBase):
 
         else:
             print("hand_indices", hand_indices)
-            # print("self.prev_bufs_manip[prev_dof_state_tensor].shape", self.prev_bufs_manip["prev_dof_state_tensor"].shape)
-            # print("self.prev_bufs_manip[prev_targets].shape", self.prev_bufs_manip["prev_targets"].shape)
+            # print("self.prev_bufs[prev_dof_state_tensor].shape", self.prev_bufs["prev_dof_state_tensor"].shape)
+            # print("self.prev_bufs[prev_targets].shape", self.prev_bufs["prev_targets"].shape)
             # print("self.dof_state.shape", self.dof_state.shape)
             # print("self.prev_targets.shape", self.prev_targets.shape)
-            self.prev_bufs_manip["prev_dof_state_tensor"][hand_indices] = self.dof_state[hand_indices]
-            self.prev_bufs_manip["prev_targets"][hand_indices] = self.prev_targets[hand_indices]
+            self.prev_bufs["prev_dof_state_tensor"][hand_indices] = self.dof_state[hand_indices]
+            self.prev_bufs["prev_targets"][hand_indices] = self.prev_targets[hand_indices]
 
         # print("env_ids", env_ids)
         # print("progress_buf before zeroing", self.progress_buf)
@@ -1171,8 +1171,22 @@ class ArticulateMinTask(VecTask, IsaacGymCameraBase):
         self.actions = actions.clone().to(self.device)
         self.assign_act(self.actions)
 
-        if self.prev_bufs_manip is not None:
-            manip_reset(self.gym, self.sim, **self.prev_bufs_manip)
+        if self.prev_bufs is not None:
+            # setting state tensors to the values in self.prev_bufs
+            self.gym.set_actor_root_state_tensor(
+                self.sim,
+                gymtorch.unwrap_tensor(self.prev_bufs["prev_actor_root_state_tensor"]),
+            )
+
+            self.gym.set_dof_state_tensor(
+                self.sim,
+                gymtorch.unwrap_tensor(self.prev_bufs["prev_dof_state_tensor"]),
+            )
+
+            self.gym.set_dof_position_target_tensor(
+                self.sim,
+                gymtorch.unwrap_tensor(self.prev_bufs["prev_targets"]),
+            )
 
         # get rb forces
         force_noise_scale = self.get_or_sample_noise_scale(self.force_scale)
@@ -1236,11 +1250,11 @@ class ArticulateMinTask(VecTask, IsaacGymCameraBase):
 
         self.prev_targets[:, self.actuated_dof_indices] = self.cur_targets[:, self.actuated_dof_indices]
 
-        if self.prev_bufs_manip is None:
-            result = self.gym.set_dof_position_target_tensor(self.sim, gymtorch.unwrap_tensor(self.cur_targets))
+        if self.prev_bufs is None:
+            self.gym.set_dof_position_target_tensor(self.sim, gymtorch.unwrap_tensor(self.cur_targets))
             # print("set_dof_position_target_tensor in assign_act with result: ", result)
         else:
-            self.prev_bufs_manip["prev_targets"] = self.cur_targets
+            self.prev_bufs["prev_targets"] = self.cur_targets
 
     def post_physics_step(self):
         # print("self.progress_buf before +=", self.progress_buf)
@@ -1529,8 +1543,6 @@ class ArticulateMinTask(VecTask, IsaacGymCameraBase):
             )
 
         obs_dict["goal_dof_pos"] = object_target_dof.view(self.num_envs, -1)
-        # printing devices
-
         obs_dict["goal_dof_pos_scaled"] = unscale(
             obs_dict["goal_dof_pos"].view(self.num_envs // self.num_objects, self.num_objects, -1),
             self.object_dof_lower_limits,
@@ -1611,7 +1623,7 @@ class ArticulateMinTask(VecTask, IsaacGymCameraBase):
         obs_dict["object_type_one_hot"] = object_type_one_hot.to(self.device)
 
         # placeholder replacing manipulability calculation with just the buffers would be returned
-        self.prev_bufs_manip = {
+        self.prev_bufs = {
         "prev_actor_root_state_tensor": self.root_state_tensor.clone(),
         "prev_dof_state_tensor": self.dof_state.clone(),
         "prev_rigid_body_tensor": self.rigid_body_states.clone(),
@@ -1692,74 +1704,6 @@ class ArticulateMinTask(VecTask, IsaacGymCameraBase):
                 "camera_pose": camera_spec.get("camera_pose", [[0.0, -0.35, 0.2], [0.0, 0.0, 0.85090352, 0.52532199]]),
             }
             self.camera_spec_dict[k] = OmegaConf.create(camera_config)
-
-    # def step(self, actions: torch.Tensor) -> Tuple[Dict[str, torch.Tensor], torch.Tensor, torch.Tensor, Dict[str, Any]]:
-    #     """Step the physics of the environment.
-
-    #     Args:
-    #         actions: actions to apply
-    #     Returns:
-    #         Observations, rewards, resets, info
-    #         Observations are dict of observations (currently only one member called 'obs')
-    #     """
-
-    #     # # timing stuff
-    #     # curr_time = time.time()
-    #     # self.dt = curr_time - self.prev_time
-    #     # print("dt", self.dt)
-    #     # self.prev_time = curr_time
-
-    #     # randomize actions
-    #     if self.dr_randomizations.get("actions", None):
-    #         actions = self.dr_randomizations["actions"]["noise_lambda"](actions)
-
-    #     # overriding actions TODO: remove
-    #     # print('OVERRIDING ACTIONS: SETTING TO ZERO')
-    #     # actions = torch.zeros_like(actions)
-
-    #     action_tensor = torch.clamp(actions, -self.clip_actions, self.clip_actions)
-    #     # apply actions
-    #     self.pre_physics_step(action_tensor)
-
-    #     # step physics and render each frame
-    #     for i in range(self.control_freq_inv):
-    #         if self.force_render:
-    #             self.render()
-    #         # print("simulating (step)")
-    #         self.gym.simulate(self.sim)
-
-    #     # to fix!
-    #     if self.device == "cpu":
-    #         self.gym.fetch_results(self.sim, True)
-
-    #     # compute observations, rewards, resets, ...
-    #     self.post_physics_step()
-
-    #     # fill time out buffer: set to 1 if we reached the max episode length AND the reset buffer is 1. Timeout == 1 makes sense only if the reset buffer is 1.
-    #     self.timeout_buf = (self.progress_buf >= self.max_episode_length - 1) & (self.reset_buf != 0)
-
-    #     # randomize observations
-    #     if self.dr_randomizations.get("observations", None):
-    #         self.obs_buf = self.dr_randomizations["observations"]["noise_lambda"](self.obs_buf)
-
-    #     self.extras["time_outs"] = self.timeout_buf.to(self.rl_device)
-
-    #     self.obs_dict["obs"] = torch.clamp(self.obs_buf, -self.clip_obs, self.clip_obs).to(self.rl_device)
-
-    #     # asymmetric actor-critic
-    #     if self.num_states > 0:
-    #         self.obs_dict["states"] = self.get_state()
-
-    #     # print('rew_buf', self.rew_buf.shape)
-    #     # wandb.log({"reward": self.rew_buf.mean().item()})
-
-    #     return (
-    #         self.obs_dict,
-    #         self.rew_buf.to(self.rl_device),
-    #         self.reset_buf.to(self.rl_device),
-    #         self.extras,
-    #     )
-
 
 class ArticulateMinTaskCamera(ArticulateMinTask):
     dict_obs_cls: bool = False
