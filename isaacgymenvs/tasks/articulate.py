@@ -272,9 +272,15 @@ class ArticulateTask(VecTask, IsaacGymCameraBase):
             virtual_screen_capture=virtual_screen_capture,
             force_render=force_render,
         )
-        self.actions = torch.zeros(self.num_envs, self.cfg["env"]["numActions"], device=self.device)
-
-        self.prev_time = time.time()
+        if self.use_relative_control:
+            self.actions = torch.zeros(self.num_envs, self.cfg["env"]["numActions"], device=self.device)
+        else:
+            self.actions = scale(
+                self.shadow_hand_dof_default_pos,
+                self.shadow_hand_dof_lower_limits[self.actuated_dof_indices],
+                self.shadow_hand_dof_upper_limits[self.actuated_dof_indices],
+            )
+        self.current_obs_dict = {}
 
         self.init_sim()
 
@@ -1170,6 +1176,16 @@ class ArticulateTask(VecTask, IsaacGymCameraBase):
             )
 
     def assign_act(self, actions):
+        if self.debug_zero_actions:
+            if self.use_relative_control:
+                actions *= 0
+            else:
+                actions = unscale(
+                    self.cur_targets[:, self.actuated_dof_indices],
+                    self.shadow_hand_dof_lower_limits[self.actuated_dof_indices],
+                    self.shadow_hand_dof_upper_limits[self.actuated_dof_indices],
+                )
+                self.actions = actions
         if self.use_relative_control:
             targets = (
                 self.prev_targets[:, self.actuated_dof_indices] + self.shadow_hand_dof_speed_scale * self.dt * actions
@@ -1444,6 +1460,22 @@ class ArticulateTask(VecTask, IsaacGymCameraBase):
             self.shadow_hand_dof_lower_limits,
             self.shadow_hand_dof_upper_limits,
         )
+        obs_dict["hand_joint_pos_init"] = self.shadow_hand_dof_default_pos
+        if self.use_relative_control:
+            obs_dict["hand_joint_pos_delta"] = self.actions
+        else:
+            obs_dict["hand_joint_pos_delta"] = self.actions - unscale(
+                prev_hand_dof_pos,
+                self.shadow_hand_dof_lower_limits[self.actuated_dof_indices],
+                self.shadow_hand_dof_upper_limits[self.actuated_dof_indices],
+            )
+
+        obs_dict["hand_joint_pos_target"] = unscale(
+            self.cur_targets[:, self.actuated_dof_indices],
+            self.shadow_hand_dof_lower_limits,
+            self.shadow_hand_dof_upper_limits,
+        )
+
         obs_dict["hand_joint_vel"] = self.vel_obs_scale * self.shadow_hand_dof_vel
         obs_dict["object_pose"] = self.root_state_tensor[self.object_indices, 0:7]
         obs_dict["object_pos"] = self.root_state_tensor[self.object_indices, 0:3]
