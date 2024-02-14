@@ -1,0 +1,13 @@
+defaults:
+  - _self_
+
+fingertip_reach_params:
+  action_penalty: ${task.rewards.action_pose_err}
+  fall_penalty: ${task.rewards.drop_penalty}
+  reach_bonus: ${task.rewards.reach_bonus}
+
+reach_bonus:
+  scale: 0.01
+
+fall_penalty:
+  scale: 0.01
