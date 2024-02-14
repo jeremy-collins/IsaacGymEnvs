@@ -493,6 +493,7 @@ class ArticulateTask(VecTask, IsaacGymCameraBase):
         self.shadow_hand_dof_lower_limits = []
         self.shadow_hand_dof_upper_limits = []
         self.shadow_hand_dof_default_pos = []
+        print("self.shadow_hand_dof_default_pos initial: ", self.shadow_hand_dof_default_pos)
         self.shadow_hand_dof_default_vel = []
 
         # TODO: add option to load different hand initializations per object
@@ -534,6 +535,7 @@ class ArticulateTask(VecTask, IsaacGymCameraBase):
             shadow_hand_dof_props["armature"][i] = 0.001
 
         # assert len(self.shadow_hand_dof_default_pos) == self.num_shadow_hand_dofs
+
 
         self.actuated_dof_indices = to_torch(self.actuated_dof_indices, dtype=torch.long, device=self.device)
         self.shadow_hand_dof_lower_limits = to_torch(self.shadow_hand_dof_lower_limits, device=self.device)
@@ -698,17 +700,27 @@ class ArticulateTask(VecTask, IsaacGymCameraBase):
             print("self.shadow_hand_dof_default_pos before append", self.shadow_hand_dof_default_pos)
             print("appending allegro_hand_dof_start_pos", allegro_hand_dof_start_pos)
             self.shadow_hand_dof_default_pos.append(allegro_hand_dof_start_pos)
+            print("self.shadow_hand_dof_default_pos after append", self.shadow_hand_dof_default_pos)
             poses.append((object_start_pose, goal_start_pose, allegro_hand_frame_origin))
 
-        # compute aggregate size
-        max_agg_bodies = self.num_shadow_hand_bodies + max(self.num_object_bodies)
-        max_agg_shapes = self.num_shadow_hand_shapes + max(self.num_object_shapes)
-        if self.load_goal_asset:
-            max_agg_bodies += max(self.num_object_bodies)
-            max_agg_shapes += max(self.num_object_shapes)
+        # # compute aggregate size
+        # max_agg_bodies = self.num_shadow_hand_bodies + max(self.num_object_bodies)
+        # max_agg_shapes = self.num_shadow_hand_shapes + max(self.num_object_shapes)
+        # if self.load_goal_asset:
+        #     max_agg_bodies += max(self.num_object_bodies)
+        #     max_agg_shapes += max(self.num_object_shapes)
+        
+        # compute aggregate size (from Krishnan)
+        max_agg_bodies = self.num_shadow_hand_bodies + max(self.num_object_bodies) + max(self.num_goal_bodies)
+        max_agg_shapes = self.num_shadow_hand_shapes + max(self.num_object_shapes) + max(self.num_goal_shapes)
+        print("shadow_hand_dof_default_pos", self.shadow_hand_dof_default_pos) 
+        print("shadow_hand_dof_default_pos len", len(self.shadow_hand_dof_default_pos)) 
+        self.shadow_hand_dof_default_pos = torch.stack(tuple(self.shadow_hand_dof_default_pos), dim=0).repeat(
+            (self.num_envs // len(self.object_assets), 1)
+        )
 
         print("self.shadow_hand_dof_default_pos", self.shadow_hand_dof_default_pos)
-        self.shadow_hand_dof_default_pos = torch.stack(self.shadow_hand_dof_default_pos, dim=0).repeat(
+        self.shadow_hand_dof_default_pos = torch.stack(tuple(self.shadow_hand_dof_default_pos), dim=0).repeat(
             (self.num_envs // len(self.object_assets), 1)
         )
         # self.shadow_hand_dof_default_pos[:, :6] = 0
@@ -1076,7 +1088,7 @@ class ArticulateTask(VecTask, IsaacGymCameraBase):
         pos_noise_scale = self.get_or_sample_noise_scale(self.reset_dof_pos_noise)
         vel_noise_scale = self.get_or_sample_noise_scale(self.reset_dof_vel_noise)
 
-        pos = self.shadow_hand_dof_default_pos + pos_noise_scale * rand_delta
+        pos = self.shadow_hand_dof_default_pos[env_ids] + pos_noise_scale * rand_delta
         self.shadow_hand_dof_pos[env_ids, :] = pos
         self.shadow_hand_dof_vel[env_ids, :] = (
             self.shadow_hand_dof_default_vel

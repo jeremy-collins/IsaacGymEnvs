@@ -2,9 +2,11 @@ defaults:
   - ArticulateBase
   - _self_
 
+# used to create the object
+name: ArticulateMinTask
+
 env:
   # reward -> dictionary
-  successTolerance: 0.005
   rewardParams: 
     task_rew: ${task.rewards.task_reward}
     hand_dist: ${task.rewards.hand_dist}
@@ -12,24 +14,26 @@ env:
     reach_bonus: ${task.rewards.reach_bonus}
     fall_penalty: ${task.rewards.drop_penalty}
     hand_rot_reward: ${task.rewards.hand_rot_reward}
-   
+
+  successTolerance: 0.05
+  objectType: 
+    # - "dispenser"
+    - "scissors" # can be block, egg or pen
+  objectInstance:
+    scissors:
+      - 0
+  objectDofName: "joint_0"
+  objectDofTargetPos: 
+    - 0.2
+  objectStiffness: 0
+  objectDamping: 0.5
+  fixObjectBase: true
+
   fallPenalty: 0.0
 
   useOneHot: true  
-  objectType: 
-    # - "dispenser"
-    - "spray_bottle" # can be block, egg or pen
-  objectDofName: "joint_0"
-  objectDofTargetPos: 
-    - 0.075  # 0.05 for spray_bottle
-    - 0.08  # 0.05 for spray_bottle
   scaleDofPos: false
-  objectInstance:
-    spray_bottle: [0, 1]
   objectMass: 1
-  objectStiffness: 3
-  objectDamping: 0.1
-  fixObjectBase: false
   observationType: "full_state" # can be "no_vel", "full_state", "full"
   asymmetric_observations: False
   printNumSuccesses: False

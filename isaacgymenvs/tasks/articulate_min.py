@@ -493,6 +493,7 @@ class ArticulateMinTask(VecTask, IsaacGymCameraBase):
         self.shadow_hand_dof_lower_limits = []
         self.shadow_hand_dof_upper_limits = []
         self.shadow_hand_dof_default_pos = []
+        print("self.shadow_hand_dof_default_pos initial: ", self.shadow_hand_dof_default_pos)
         self.shadow_hand_dof_default_vel = []
 
         # TODO: add option to load different hand initializations per object
@@ -706,12 +707,21 @@ class ArticulateMinTask(VecTask, IsaacGymCameraBase):
         if self.load_goal_asset:
             max_agg_bodies += max(self.num_object_bodies)
             max_agg_shapes += max(self.num_object_shapes)
+        
+        # # compute aggregate size (from Krishnan)
+        # max_agg_bodies = self.num_shadow_hand_bodies + max(self.num_object_bodies) + max(self.num_goal_bodies)
+        # max_agg_shapes = self.num_shadow_hand_shapes + max(self.num_object_shapes) + max(self.num_goal_shapes)
+        # print("shadow_hand_dof_default_pos", self.shadow_hand_dof_default_pos) 
+        # print("shadow_hand_dof_default_pos len", len(self.shadow_hand_dof_default_pos)) 
+        # self.shadow_hand_dof_default_pos = torch.stack(tuple(self.shadow_hand_dof_default_pos), dim=0).repeat(
+        #     (self.num_envs // len(self.object_assets), 1)
+        # )
 
         print("self.shadow_hand_dof_default_pos", self.shadow_hand_dof_default_pos)
-        self.shadow_hand_dof_default_pos = torch.stack(self.shadow_hand_dof_default_pos, dim=0).repeat(
+        self.shadow_hand_dof_default_pos = torch.stack(tuple(self.shadow_hand_dof_default_pos), dim=0).repeat(
             (self.num_envs // len(self.object_assets), 1)
         )
-        # self.shadow_hand_dof_default_pos[:, :6] = 0
+        # self.shadow_hand_dof_default_pos[:, :6] = 0s
         self.shadow_hands = []
         self.object_actor_handles = []
         self.object_rb_masses = []
@@ -1069,14 +1079,24 @@ class ArticulateMinTask(VecTask, IsaacGymCameraBase):
         )
 
         # reset shadow hand
-        delta_max = self.shadow_hand_dof_upper_limits - self.shadow_hand_dof_default_pos
-        delta_min = self.shadow_hand_dof_lower_limits - self.shadow_hand_dof_default_pos
+        # delta_max = self.shadow_hand_dof_upper_limits - self.shadow_hand_dof_default_pos
+        # delta_min = self.shadow_hand_dof_lower_limits - self.shadow_hand_dof_default_pos
+        delta_min = (self.shadow_hand_dof_lower_limits - self.shadow_hand_dof_default_pos)[env_ids]
+        delta_max = (self.shadow_hand_dof_upper_limits - self.shadow_hand_dof_default_pos)[env_ids]
+
+        print("env_ids", env_ids)
+        print("len(env_ids)", len(env_ids))
+        print("self.shadow_hand_dof_default_pos[env_ids].shape", self.shadow_hand_dof_default_pos[env_ids].shape)
+        print("rand_floats[:, : self.num_shadow_hand_dofs].shape", rand_floats[:, : self.num_shadow_hand_dofs].shape)
+        print("delta_min.shape", delta_min.shape)
+        print("delta_max.shape", delta_max.shape)
         rand_delta = delta_min + (delta_max - delta_min) * rand_floats[:, : self.num_shadow_hand_dofs]
+        # print("rand_delta.shape", rand_delta.shape)
 
         pos_noise_scale = self.get_or_sample_noise_scale(self.reset_dof_pos_noise)
         vel_noise_scale = self.get_or_sample_noise_scale(self.reset_dof_vel_noise)
 
-        pos = self.shadow_hand_dof_default_pos + pos_noise_scale * rand_delta
+        pos = self.shadow_hand_dof_default_pos[env_ids] + pos_noise_scale * rand_delta
         self.shadow_hand_dof_pos[env_ids, :] = pos
         self.shadow_hand_dof_vel[env_ids, :] = (
             self.shadow_hand_dof_default_vel
@@ -1133,6 +1153,8 @@ class ArticulateMinTask(VecTask, IsaacGymCameraBase):
         self.extras = {}
         env_ids = self.reset_buf.nonzero(as_tuple=False).squeeze(-1)
         goal_env_ids = self.reset_goal_buf.nonzero(as_tuple=False).squeeze(-1)
+
+        # self.reset_idx([1,2,3]) # TODO: for debugging only, remove this line!!
 
         # if only goals need reset, then call set API
         if len(goal_env_ids) > 0 and len(env_ids) == 0:
@@ -1588,87 +1610,14 @@ class ArticulateMinTask(VecTask, IsaacGymCameraBase):
         obs_dict["object_instance_one_hot"] = object_instance_one_hot.to(self.device)
         obs_dict["object_type_one_hot"] = object_type_one_hot.to(self.device)
 
-        # checking for the word "manipulability" in the reward_params keys
-        if not skip_manipulability and any(["manipulability" in key for key in self.reward_params.keys()]):
-            # creating copies of every variable manipulability interacts with
-            manip_args = {
-                "gym": self.gym,
-                "sim": self.sim,
-                "device": str(self.device),
-                "clip_actions": float(self.clip_actions),
-                "num_envs": int(self.num_envs),
-                "shadow_hand_dof_pos": self.shadow_hand_dof_pos.clone().to(self.device),
-                "shadow_hand_dof_vel": self.shadow_hand_dof_vel.clone().to(self.device),
-                "shadow_hand_dof_lower_limits": self.shadow_hand_dof_lower_limits.clone().to(self.device),
-                "shadow_hand_dof_upper_limits": self.shadow_hand_dof_upper_limits.clone().to(self.device),
-                "shadow_hand_dof_speed_scale": float(self.shadow_hand_dof_speed_scale),
-                "object_indices": self.object_indices.clone().to(self.device),
-                "hand_indices": self.hand_indices.clone().to(self.device),
-                "palm_index": int(self.palm_index),
-                "fingertip_indices": self.fingertip_indices.clone().to(self.device),
-                "root_state_tensor": self.root_state_tensor.clone().to(self.device),
-                "dof_state_tensor": self.dof_state.clone().to(self.device),
-                "rigid_body_states": self.rigid_body_states.clone().to(self.device),
-                "object_dof_pos": self.object_dof_pos.clone().to(self.device),
-                "object_dof_lower_limits": self.object_dof_lower_limits.clone().to(self.device),
-                "object_dof_upper_limits": self.object_dof_upper_limits.clone().to(self.device),
-                "object_target_dof_pos": self.object_target_dof_pos.clone().to(self.device),
-                "scale_dof_pos": bool(self.scale_dof_pos),
-                "object_target_dof_idx": list(self.object_target_dof_idx),
-                "vel_obs_scale": float(self.vel_obs_scale),
-                "num_objects": int(self.num_objects),
-                "env_num_bodies": int(self.env_num_bodies),
-                # "env_num_bodies": self.env_num_bodies.clone().to(self.device),
-                "goal_states": self.goal_states.clone().to(self.device),
-                "hand_init_pos": self.hand_init_pos.clone().to(self.device),
-                "hand_init_quat": self.hand_init_quat.clone().to(self.device),
-                "actuated_dof_indices": self.actuated_dof_indices.clone().to(self.device),
-                "prev_targets": self.prev_targets.clone().to(self.device),
-                "obs_keys": list(self.obs_keys),
-                "obs_dict": dict(obs_dict),
-                "obs_buf": self.obs_buf.clone().to(self.device),
-                "current_obs_dict": dict(obs_dict),
-                "max_obj_instances": int(self.max_obj_instances),
-                "object_type": list(self.object_type),
-                "env_instance_order": list(self.env_instance_order),
-                "SUPPORTED_PARTNET_OBJECTS": list(SUPPORTED_PARTNET_OBJECTS),
-                "use_relative_control": bool(self.use_relative_control),
-                "actuated_dof_indices": self.actuated_dof_indices.clone().to(self.device),
-                "dt": float(self.dt),
-                "cur_targets": self.cur_targets.clone().to(self.device),
-                "object_instance": dict(self.object_instance),
-                "asset_files_dict": dict(self.asset_files_dict),
-                "num_obs_dict": dict(self.num_obs_dict),
-                "obs_type": str(self.obs_type),
-                "obs_keys_manip": ["object_pose"],
-                "f": manip_step,
-                "actions": self.actions.clone(),
-                "act_moving_average": float(self.act_moving_average),
-                "eps": 1e-2,
-            }
+        # placeholder replacing manipulability calculation with just the buffers would be returned
+        self.prev_bufs_manip = {
+        "prev_actor_root_state_tensor": self.root_state_tensor.clone(),
+        "prev_dof_state_tensor": self.dof_state.clone(),
+        "prev_rigid_body_tensor": self.rigid_body_states.clone(),
+        "prev_targets": self.prev_targets.clone(),
+        }
 
-            # for key in manip_args.keys():
-            #     print(key, type(manip_args[key]))
-
-            if "manipulability_reward" in self.reward_params.keys():
-                obs_dict["manipulability"], self.prev_bufs_manip = get_manipulability_fd(manip_args)
-            elif "manipulability_reward_vectorized" in self.reward_params.keys():
-                obs_dict["manipulability"], self.prev_bufs_manip = get_manipulability_fd_parallel_actions(manip_args)
-            elif "manipulability_reward_vec" in self.reward_params.keys():
-                obs_dict["manipulability"], self.prev_bufs_manip = get_manipulability_fd_rand_vec(manip_args)
-            else:
-                raise NotImplementedError
-
-            # # checking that self.prev_bufs_manip matches what we copied in manip_args
-            # assert torch.allclose(
-            #     self.prev_bufs_manip["prev_actor_root_state_tensor"], manip_args["root_state_tensor"]
-            # ), "root_state_tensor is wrong!"
-            # assert torch.allclose(
-            #     self.prev_bufs_manip["prev_dof_state_tensor"], manip_args["dof_state_tensor"]
-            # ), "dof_state is wrong!"
-            # assert torch.allclose(
-            #     self.prev_bufs_manip["prev_rigid_body_tensor"], manip_args["rigid_body_states"]
-            # ), "rigid_body_states is wrong!"
         self.current_obs_dict = obs_dict
         if not self.use_dict_obs:
             # for key in self.obs_keys:
