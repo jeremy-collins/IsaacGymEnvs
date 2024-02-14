@@ -1,8 +1,14 @@
 action_pose_err:
   reward_fn_partial: 
     _partial_: true
-    _target_: isaacgymenvs.utils.rewards.l2_dist
+    _target_: isaacgymenvs.utils.rewards.hand_pose_action_penalty
   args: 
-    - target_qpos
-    - hand_qpos
-  scale: -2e-4
+    - hand_joint_pos
+    - hand_joint_pos_target
+    - hand_joint_pos_delta
+    - hand_joint_pos_init
+    # - 0.5
+    # - 1.0
+    # - ${resolve_child:0.5,${task.rewards.action_pose_err},alpha}
+    # - ${resolve_child:1.0,${task.rewards.action_pose_err},beta}
+  scale: -1
