@@ -2,7 +2,7 @@ from typing import Union, Dict, Any, Tuple
 import numpy as np
 from isaacgym import gymtorch
 from isaacgym.torch_utils import *
-from utils.utils import obs_dict_to_tensor
+from isaacgymenvs.utils.utils import obs_dict_to_tensor
 import torch
 
 def manip_step(

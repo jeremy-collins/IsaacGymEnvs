@@ -45,6 +45,7 @@
 # from .shadow_hand import ShadowHand
 # from .allegro_hand import AllegroHand
 from .articulate import ArticulateTask, ArticulateTaskCamera
+from .articulate_manip import ArticulateManipTask, ArticulateManipTaskCamera
 # from .allegro_hand_grasp import AllegroHandGrasp, AllegroHandGraspMultiTask
 # from .dextreme.allegro_hand_dextreme import (
 #     AllegroHandDextremeManualDR,
@@ -99,6 +100,8 @@ isaacgym_task_map = {
     # "AllegroHandGraspMulti": AllegroHandGraspMultiTask,
     "ArticulateTask": ArticulateTask,
     "ArticulateTaskCamera": ArticulateTaskCamera,
+    "ArticulateManipTask": ArticulateManipTask,
+    "ArticulateManipTaskCamera": ArticulateManipTaskCamera,
     # # "AllegroKuka": resolve_allegro_kuka,
     # # "AllegroKukaTwoArms": resolve_allegro_kuka_two_arms,
     # "AllegroHandManualDR": AllegroHandDextremeManualDR,

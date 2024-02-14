@@ -17,7 +17,7 @@ from .base.vec_task import VecTask
 import time
 import wandb
 
-from utils.manipulability import *
+from isaacgymenvs.utils.manipulability import *
 import copy
 import torch
 

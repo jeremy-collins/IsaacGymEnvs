@@ -12,12 +12,12 @@ from isaacgymenvs.utils import rewards
 from isaacgymenvs.tasks.utils import IsaacGymCameraBase
 from isaacgymenvs.utils.reformat import omegaconf_to_dict, print_dict
 from omegaconf import OmegaConf
-from .base.vec_task import VecTask
+from isaacgymenvs.tasks.base.vec_task import VecTask
 
 import time
 import wandb
 
-from utils.manipulability import *
+from isaacgymenvs.utils.manipulability import *
 import copy
 import torch
 
@@ -34,7 +34,7 @@ NUM_OBJECT_TYPES = 7
 NUM_OBJECT_INSTANCES = 5  # per type
 
 
-class ArticulateTask(VecTask, IsaacGymCameraBase):
+class ArticulateManipTask(VecTask, IsaacGymCameraBase):
     dict_obs_cls: bool = False
     obs_keys = [
         "hand_joint_pos",  # in [16, 22]
@@ -148,7 +148,7 @@ class ArticulateTask(VecTask, IsaacGymCameraBase):
         self.load_default_pos = self.cfg["env"].get("load_default_pos", True)  # default dof pos for hand
         self.set_start_pos = self.cfg["env"].get("set_start_pos", False)
         self.debug_zero_actions = self.cfg["env"].get("debug_zero_actions", False)
-        self.hand_init_path = self.cfg["env"].get("hand_init_path", "allegro_hand_dof_default_pos.npy")
+        self.hand_init_path = self.cfg["env"].get("hand_init_path") #, "allegro_hand_dof_default_pos.npy")
         self.log_reward_info = self.cfg["env"].get("log_reward_info", False)
         self.load_goal_asset = self.cfg["env"].get("loadGoalAsset", False)
         self.limit_hand_rotation = self.cfg["env"].get("limitHandRotation", False)
@@ -915,68 +915,74 @@ class ArticulateTask(VecTask, IsaacGymCameraBase):
         self.object_indices = to_torch(self.object_indices, dtype=torch.long, device=self.device)
         self.goal_object_indices = to_torch(self.goal_object_indices, dtype=torch.long, device=self.device)
 
-    # def reset_target_pose(self, env_ids, apply_reset=False):
-    #     # print("resetting goals in reset_target_pose at", env_ids)
-    #     if isinstance(self.object_target_dof_pos, torch.Tensor) and len(self.object_target_dof_pos) > 1:
-    #         object_target_dof = self.object_target_dof_pos.repeat(self.num_envs // self.num_objects).unsqueeze(-1)[
-    #             env_ids
-    #         ]
-    #     else:
-    #         object_target_dof = self.object_target_dof_pos  # TODO: resample goal dof state here
+    def reset_target_pose(self, env_ids, apply_reset=False):
+        # print("resetting goals in reset_target_pose at", env_ids)
+        if isinstance(self.object_target_dof_pos, torch.Tensor) and len(self.object_target_dof_pos) > 1:
+            object_target_dof = self.object_target_dof_pos.repeat(self.num_envs // self.num_objects).unsqueeze(-1)[
+                env_ids
+            ]
+        else:
+            object_target_dof = self.object_target_dof_pos  # TODO: resample goal dof state here
 
-    #     # sets goal object position and rotation and dof pos
-    #     if self.load_goal_asset:
-    #         self.goal_states[env_ids, 0:7] = self.goal_init_state[env_ids, 0:7]
-    #         self.root_state_tensor[self.goal_object_indices[env_ids], 0:3] = (
-    #             self.goal_states[env_ids, 0:3] + self.goal_displacement_tensor
-    #         )
-    #         self.root_state_tensor[self.goal_object_indices[env_ids], 3:7] = self.goal_states[env_ids, 3:7]
-    #         self.goal_dof_state[env_ids, :, 0] = object_target_dof
+        # sets goal object position and rotation and dof pos
+        if self.load_goal_asset:
+            self.goal_states[env_ids, 0:7] = self.goal_init_state[env_ids, 0:7]
+            self.root_state_tensor[self.goal_object_indices[env_ids], 0:3] = (
+                self.goal_states[env_ids, 0:3] + self.goal_displacement_tensor
+            )
+            self.root_state_tensor[self.goal_object_indices[env_ids], 3:7] = self.goal_states[env_ids, 3:7]
+            self.goal_dof_state[env_ids, :, 0] = object_target_dof
 
-    #         goal_indices = self.goal_object_indices[env_ids].to(torch.int32)
-    #         # reset goal task pose
-    #         self.prev_targets[
-    #             env_ids,
-    #             self.num_dofs_with_object : self.num_dofs_with_object + self.num_object_dofs,
-    #         ] = object_target_dof
-    #         self.gym.set_dof_position_target_tensor_indexed(
-    #             self.sim,
-    #             gymtorch.unwrap_tensor(self.prev_targets),
-    #             gymtorch.unwrap_tensor(goal_indices),
-    #             len(env_ids),
-    #         )
-    #         # print("set_dof_position_target_tensor_indexed in reset_target_pose with result: ", result)
+            goal_indices = self.goal_object_indices[env_ids].to(torch.int32)
+            # reset goal task pose
+            self.prev_targets[
+                env_ids,
+                self.num_dofs_with_object : self.num_dofs_with_object + self.num_object_dofs,
+            ] = object_target_dof
+            self.gym.set_dof_position_target_tensor_indexed(
+                self.sim,
+                gymtorch.unwrap_tensor(self.prev_targets),
+                gymtorch.unwrap_tensor(goal_indices),
+                len(env_ids),
+            )
+            # print("set_dof_position_target_tensor_indexed in reset_target_pose with result: ", result)
 
-    #         result = self.gym.set_dof_state_tensor_indexed(
-    #             self.sim,
-    #             gymtorch.unwrap_tensor(self.dof_state),
-    #             gymtorch.unwrap_tensor(goal_indices),
-    #             len(env_ids),
-    #         )
-    #         # print("set_dof_state_tensor_indexed in reset_target_pose with result: ", result)
+            result = self.gym.set_dof_state_tensor_indexed(
+                self.sim,
+                gymtorch.unwrap_tensor(self.dof_state),
+                gymtorch.unwrap_tensor(goal_indices),
+                len(env_ids),
+            )
+            # print("set_dof_state_tensor_indexed in reset_target_pose with result: ", result)
                   
-    #         # zeroes velocities
-    #         self.root_state_tensor[self.goal_object_indices[env_ids], 7:13] = torch.zeros_like(
-    #             self.root_state_tensor[self.goal_object_indices[env_ids], 7:13]
-    #         )
+            # zeroes velocities
+            self.root_state_tensor[self.goal_object_indices[env_ids], 7:13] = torch.zeros_like(
+                self.root_state_tensor[self.goal_object_indices[env_ids], 7:13]
+            )
 
-    #     if apply_reset and self.load_goal_asset:
-    #         # print("applying reset in reset_target_pose at", env_ids)
-    #         goal_object_indices = self.goal_object_indices[env_ids].to(torch.long)
-    #         if self.prev_bufs_manip is None:
-    #             result = self.gym.set_actor_root_state_tensor_indexed(
-    #                 self.sim,
-    #                 gymtorch.unwrap_tensor(self.root_state_tensor),
-    #                 gymtorch.unwrap_tensor(goal_object_indices),
-    #                 len(env_ids),
-    #             )
-    #             # print("set_actor_root_state_tensor_indexed in reset_target_pose with result: ", result)
-    #         else:
-    #             self.prev_bufs_manip["prev_actor_root_state_tensor"][goal_object_indices] = self.root_state_tensor[
-    #                 goal_object_indices
-    #             ]
+        if apply_reset and self.load_goal_asset:
+            # print("applying reset in reset_target_pose at", env_ids)
+            goal_object_indices = self.goal_object_indices[env_ids].to(torch.long)
+            if self.prev_bufs_manip is None:
+                result = self.gym.set_actor_root_state_tensor_indexed(
+                    self.sim,
+                    gymtorch.unwrap_tensor(self.root_state_tensor),
+                    gymtorch.unwrap_tensor(goal_object_indices),
+                    len(env_ids),
+                )
+                # print("set_actor_root_state_tensor_indexed in reset_target_pose with result: ", result)
+            else:
+                self.prev_bufs_manip["prev_actor_root_state_tensor"][goal_object_indices] = self.root_state_tensor[
+                    goal_object_indices
+                ]
+            # self.gym.set_actor_root_state_tensor_indexed(
+            #         self.sim,
+            #         gymtorch.unwrap_tensor(self.root_state_tensor),
+            #         gymtorch.unwrap_tensor(goal_object_indices),
+            #         len(env_ids),
+            #     )
 
-    #     self.reset_goal_buf[env_ids] = 0
+        self.reset_goal_buf[env_ids] = 0
 
     def get_or_sample_noise_scale(self, param: Union[float, dict]):
         if isinstance(param, float):
@@ -995,123 +1001,137 @@ class ArticulateTask(VecTask, IsaacGymCameraBase):
             raise ValueError(f"Invalid reset_position_noise: {param} must be float or dict")
         return noise_scale
 
-    # def reset_idx(self, env_ids, goal_env_ids=None):
-    #     # generate random values
-    #     rand_floats = torch_rand_float(
-    #         -1.0,
-    #         1.0,
-    #         (len(env_ids), self.num_shadow_hand_dofs * 2 + 13),
-    #         device=self.device,
-    #     )  # * 0
+    def reset_idx(self, env_ids, goal_env_ids=None):
+        # generate random values
+        rand_floats = torch_rand_float(
+            -1.0,
+            1.0,
+            (len(env_ids), self.num_shadow_hand_dofs * 2 + 13),
+            device=self.device,
+        )  # * 0
 
-    #     # reset start object target poses
-    #     self.reset_target_pose(env_ids)
+        # reset start object target poses
+        self.reset_target_pose(env_ids)
 
-    #     # reset rigid body forces
-    #     if self.num_objects > 1:
-    #         rb_env_ids = torch.unique(to_torch(env_ids // self.num_objects, device=self.device, dtype=torch.long))
-    #     else:
-    #         rb_env_ids = env_ids
-    #     self.rb_forces[rb_env_ids, :, :] = 0.0
+        # reset rigid body forces
+        if self.num_objects > 1:
+            rb_env_ids = torch.unique(to_torch(env_ids // self.num_objects, device=self.device, dtype=torch.long))
+        else:
+            rb_env_ids = env_ids
+        self.rb_forces[rb_env_ids, :, :] = 0.0
 
-    #     # reset object position/orientation
-    #     self.root_state_tensor[self.object_indices[env_ids]] = self.object_init_state[env_ids].clone()
-    #     pose_noise_scale = self.get_or_sample_noise_scale(self.reset_position_noise)
+        # reset object position/orientation
+        self.root_state_tensor[self.object_indices[env_ids]] = self.object_init_state[env_ids].clone()
+        pose_noise_scale = self.get_or_sample_noise_scale(self.reset_position_noise)
 
-    #     # TODO: disentangle object pose noise and dof_pose noise
-    #     object_pose_noise = pose_noise_scale * rand_floats[:, :13]
-    #     object_pose_noise[:, 1] = 0.0  # no noise in y-dim
-    #     # z-dim noise must be negative
-    #     object_pose_noise[:, 2] = torch.clamp(object_pose_noise[:, 2], 0, torch.inf)
-    #     object_pose_noise[:, 3:] = 0.0
-    #     self.root_state_tensor[self.object_indices[env_ids]] += object_pose_noise
-    #     rand_floats = rand_floats[:, 13:] * 0
+        # TODO: disentangle object pose noise and dof_pose noise
+        object_pose_noise = pose_noise_scale * rand_floats[:, :13]
+        object_pose_noise[:, 1] = 0.0  # no noise in y-dim
+        # z-dim noise must be negative
+        object_pose_noise[:, 2] = torch.clamp(object_pose_noise[:, 2], 0, torch.inf)
+        object_pose_noise[:, 3:] = 0.0
+        self.root_state_tensor[self.object_indices[env_ids]] += object_pose_noise
+        rand_floats = rand_floats[:, 13:] * 0
 
-    #     # reset object velocity
-    #     self.root_state_tensor[self.object_indices[env_ids], 7:13] = torch.zeros_like(
-    #         self.root_state_tensor[self.object_indices[env_ids], 7:13]
-    #     )
+        # reset object velocity
+        self.root_state_tensor[self.object_indices[env_ids], 7:13] = torch.zeros_like(
+            self.root_state_tensor[self.object_indices[env_ids], 7:13]
+        )
 
-    #     object_indices = [self.object_indices[env_ids]]
-    #     if self.load_goal_asset:
-    #         object_indices += [self.goal_object_indices[env_ids]]
-    #         if goal_env_ids is not None:
-    #             object_indices += [
-    #                 self.goal_object_indices[goal_env_ids],  # TODO: remove these if goal asset not added
-    #             ]
-    #     object_indices = torch.unique(torch.cat(object_indices).to(torch.int32))
+        object_indices = [self.object_indices[env_ids]]
+        if self.load_goal_asset:
+            object_indices += [self.goal_object_indices[env_ids]]
+            if goal_env_ids is not None:
+                object_indices += [
+                    self.goal_object_indices[goal_env_ids],  # TODO: remove these if goal asset not added
+                ]
+        object_indices = torch.unique(torch.cat(object_indices).to(torch.int32))
 
-    #     if self.prev_bufs_manip is None:
-    #         result = self.gym.set_actor_root_state_tensor_indexed(
-    #             self.sim,
-    #             gymtorch.unwrap_tensor(self.root_state_tensor),
-    #             gymtorch.unwrap_tensor(object_indices),
-    #             len(object_indices),
-    #         )
-    #         # print("set_actor_root_state_tensor_indexed in reset_idx with result: ", result)
-    #     else:
-    #         self.prev_bufs_manip["prev_actor_root_state_tensor"][object_indices] = self.root_state_tensor[
-    #             object_indices
-    #         ]
+        if self.prev_bufs_manip is None:
+            result = self.gym.set_actor_root_state_tensor_indexed(
+                self.sim,
+                gymtorch.unwrap_tensor(self.root_state_tensor),
+                gymtorch.unwrap_tensor(object_indices),
+                len(object_indices),
+            )
+            # print("set_actor_root_state_tensor_indexed in reset_idx with result: ", result)
+        else:
+            self.prev_bufs_manip["prev_actor_root_state_tensor"][object_indices] = self.root_state_tensor[
+                object_indices
+            ]
 
-    #     # reset random force probabilities
-    #     self.random_force_prob[env_ids] = torch.exp(
-    #         (torch.log(self.force_prob_range[0]) - torch.log(self.force_prob_range[1]))
-    #         * torch.rand(len(env_ids), device=self.device)
-    #         + torch.log(self.force_prob_range[1])
-    #     )
+        # reset random force probabilities
+        self.random_force_prob[env_ids] = torch.exp(
+            (torch.log(self.force_prob_range[0]) - torch.log(self.force_prob_range[1]))
+            * torch.rand(len(env_ids), device=self.device)
+            + torch.log(self.force_prob_range[1])
+        )
 
-    #     # reset shadow hand
-    #     delta_max = self.shadow_hand_dof_upper_limits - self.shadow_hand_dof_default_pos
-    #     delta_min = self.shadow_hand_dof_lower_limits - self.shadow_hand_dof_default_pos
-    #     rand_delta = delta_min + (delta_max - delta_min) * rand_floats[:, : self.num_shadow_hand_dofs]
+        # reset shadow hand
+        delta_max = self.shadow_hand_dof_upper_limits - self.shadow_hand_dof_default_pos
+        delta_min = self.shadow_hand_dof_lower_limits - self.shadow_hand_dof_default_pos
+        rand_delta = delta_min + (delta_max - delta_min) * rand_floats[:, : self.num_shadow_hand_dofs]
 
-    #     pos_noise_scale = self.get_or_sample_noise_scale(self.reset_dof_pos_noise)
-    #     vel_noise_scale = self.get_or_sample_noise_scale(self.reset_dof_vel_noise)
+        pos_noise_scale = self.get_or_sample_noise_scale(self.reset_dof_pos_noise)
+        vel_noise_scale = self.get_or_sample_noise_scale(self.reset_dof_vel_noise)
 
-    #     pos = self.shadow_hand_dof_default_pos + pos_noise_scale * rand_delta
-    #     self.shadow_hand_dof_pos[env_ids, :] = pos
-    #     self.shadow_hand_dof_vel[env_ids, :] = (
-    #         self.shadow_hand_dof_default_vel
-    #         + vel_noise_scale * rand_floats[:, self.num_shadow_hand_dofs : self.num_shadow_hand_dofs * 2]
-    #     )
-    #     self.prev_targets[env_ids, : self.num_shadow_hand_dofs] = pos
-    #     self.cur_targets[env_ids, : self.num_shadow_hand_dofs] = pos
+        pos = self.shadow_hand_dof_default_pos + pos_noise_scale * rand_delta
+        self.shadow_hand_dof_pos[env_ids, :] = pos
+        self.shadow_hand_dof_vel[env_ids, :] = (
+            self.shadow_hand_dof_default_vel
+            + vel_noise_scale * rand_floats[:, self.num_shadow_hand_dofs : self.num_shadow_hand_dofs * 2]
+        )
+        self.prev_targets[env_ids, : self.num_shadow_hand_dofs] = pos
+        self.cur_targets[env_ids, : self.num_shadow_hand_dofs] = pos
 
-    #     hand_indices = self.hand_indices[env_ids].to(torch.int32)
+        hand_indices = self.hand_indices[env_ids].to(torch.int32)
 
-    #     if self.prev_bufs_manip is None:
-    #         result = self.gym.set_dof_state_tensor_indexed(
-    #             self.sim,
-    #             gymtorch.unwrap_tensor(self.dof_state),
-    #             gymtorch.unwrap_tensor(hand_indices),
-    #             len(env_ids),
-    #         )
-    #         # print("set_dof_state_tensor_indexed in reset_idx")
+        if self.prev_bufs_manip is None:
+            result = self.gym.set_dof_state_tensor_indexed(
+                self.sim,
+                gymtorch.unwrap_tensor(self.dof_state),
+                gymtorch.unwrap_tensor(hand_indices),
+                len(env_ids),
+            )
+            # print("set_dof_state_tensor_indexed in reset_idx")
 
-    #         result = self.gym.set_dof_position_target_tensor_indexed(
-    #             self.sim,
-    #             gymtorch.unwrap_tensor(self.prev_targets),
-    #             gymtorch.unwrap_tensor(hand_indices),
-    #             len(env_ids),
-    #         )
-    #         # print("set_dof_position_target_tensor_indexed in reset_idx")
+            result = self.gym.set_dof_position_target_tensor_indexed(
+                self.sim,
+                gymtorch.unwrap_tensor(self.prev_targets),
+                gymtorch.unwrap_tensor(hand_indices),
+                len(env_ids),
+            )
+            # print("set_dof_position_target_tensor_indexed in reset_idx")
 
-    #     else:
-    #         # print("hand_indices", hand_indices)
-    #         # print("self.prev_bufs_manip[prev_dof_state_tensor].shape", self.prev_bufs_manip["prev_dof_state_tensor"].shape)
-    #         # print("self.prev_bufs_manip[prev_targets].shape", self.prev_bufs_manip["prev_targets"].shape)
-    #         # print("self.dof_state.shape", self.dof_state.shape)
-    #         # print("self.prev_targets.shape", self.prev_targets.shape)
-    #         self.prev_bufs_manip["prev_dof_state_tensor"][hand_indices] = self.dof_state[hand_indices]
-    #         self.prev_bufs_manip["prev_targets"][hand_indices] = self.prev_targets[hand_indices]
+        else:
+            # print("hand_indices", hand_indices)
+            # print("self.prev_bufs_manip[prev_dof_state_tensor].shape", self.prev_bufs_manip["prev_dof_state_tensor"].shape)
+            # print("self.prev_bufs_manip[prev_targets].shape", self.prev_bufs_manip["prev_targets"].shape)
+            # print("self.dof_state.shape", self.dof_state.shape)
+            # print("self.prev_targets.shape", self.prev_targets.shape)
+            self.prev_bufs_manip["prev_dof_state_tensor"][hand_indices] = self.dof_state[hand_indices]
+            self.prev_bufs_manip["prev_targets"][hand_indices] = self.prev_targets[hand_indices]
 
-    #     # print("env_ids", env_ids)
-    #     # print("progress_buf before zeroing", self.progress_buf)
-    #     self.progress_buf[env_ids] = 0
-    #     # print("progress_buf after zeroing", self.progress_buf)
-    #     self.reset_buf[env_ids] = 0
-    #     self.successes[env_ids] = 0
+        # self.gym.set_dof_position_target_tensor_indexed(
+        #     self.sim,
+        #     gymtorch.unwrap_tensor(self.prev_targets),
+        #     gymtorch.unwrap_tensor(hand_indices),
+        #     len(env_ids),
+        # )
+
+        # self.gym.set_dof_state_tensor_indexed(
+        #     self.sim,
+        #     gymtorch.unwrap_tensor(self.dof_state),
+        #     gymtorch.unwrap_tensor(hand_indices),
+        #     len(env_ids),
+        # )
+
+        # print("env_ids", env_ids)
+        # print("progress_buf before zeroing", self.progress_buf)
+        self.progress_buf[env_ids] = 0
+        # print("progress_buf after zeroing", self.progress_buf)
+        self.reset_buf[env_ids] = 0
+        self.successes[env_ids] = 0
 
     def reset(self):
         self.compute_observations()
@@ -1122,20 +1142,20 @@ class ArticulateTask(VecTask, IsaacGymCameraBase):
 
     def pre_physics_step(self, actions):
         self.extras = {}
-        # env_ids = self.reset_buf.nonzero(as_tuple=False).squeeze(-1)
-        # goal_env_ids = self.reset_goal_buf.nonzero(as_tuple=False).squeeze(-1)
+        env_ids = self.reset_buf.nonzero(as_tuple=False).squeeze(-1)
+        goal_env_ids = self.reset_goal_buf.nonzero(as_tuple=False).squeeze(-1)
 
-        # # if only goals need reset, then call set API
-        # if len(goal_env_ids) > 0 and len(env_ids) == 0:
-        #     self.reset_target_pose(goal_env_ids, apply_reset=True)
+        # if only goals need reset, then call set API
+        if len(goal_env_ids) > 0 and len(env_ids) == 0:
+            self.reset_target_pose(goal_env_ids, apply_reset=True)
 
-        # # if goals need reset in addition to other envs, call set API in reset()
-        # elif len(goal_env_ids) > 0:
-        #     self.reset_target_pose(goal_env_ids)
+        # if goals need reset in addition to other envs, call set API in reset()
+        elif len(goal_env_ids) > 0:
+            self.reset_target_pose(goal_env_ids)
 
-        # if len(env_ids) > 0:
-        #     # print("resetting envs at", env_ids, "with goals at", goal_env_ids)
-        #     self.reset_idx(env_ids, goal_env_ids)
+        if len(env_ids) > 0:
+            # print("resetting envs at", env_ids, "with goals at", goal_env_ids)
+            self.reset_idx(env_ids, goal_env_ids)
 
         self.actions = actions.clone().to(self.device)
         self.assign_act(self.actions)
@@ -1754,7 +1774,7 @@ class ArticulateTask(VecTask, IsaacGymCameraBase):
     #     )
 
 
-class ArticulateTaskCamera(ArticulateTask):
+class ArticulateManipTaskCamera(ArticulateManipTask):
     dict_obs_cls: bool = False
 
     def __init__(
@@ -1843,7 +1863,7 @@ def get_action(t):
         actions[:, 0] = - (np.sin(t-6/250 * np.pi))
         return torch.tensor(actions, device=env.device).float()
 
-def optimize_action(action, manipulability, obj_curr, obj_des, max_iters=10, alpha=1.):
+def optimize_action(action, manipulability, obj_curr, obj_des, max_iters=100, alpha=.00001):
     for i in range(max_iters):
         C = torch.norm(obj_curr - obj_des)
         M = manipulability
@@ -1867,13 +1887,16 @@ if __name__ == "__main__":
     config_path = "../cfg"
 
     with initialize(config_path=config_path, job_name="test_env"):
-        cfg = compose(config_name="config", overrides=["task=ManipulabilityVectorizedArticulateTaskSpray1", # ArticulateTaskScissorsNew", 
+        cfg = compose(config_name="config", overrides=["task=ManipulabilityVectorizedArticulateTaskSpray1", # task=ArticulateTaskScissorsNew", # 
                                                     "train=ArticulateTaskPPO",
                                                    "task.env.observationType=full_state",
                                                    "task.env.objectType=spray_bottle",
                                                    "sim_device=cpu", 
                                                    "test=true",
-                                                   "task.env.useRelativeControl=false",
+                                                   "task.env.useRelativeControl=true",
+                                                   "+task.env.hand_init_path=allegro_hand_dof_default_pos_spray_close.npy",
+                                                #    "task.env.resetDofPosRandomInterval=0.",
+                                                #    "task.env.load_default_pos=true",
                                                 #    "checkpoint=./runs/full_state_spray/nn/full_state_spray.pth",
                                                    "num_envs=44"
                                                    ])
@@ -1881,7 +1904,6 @@ if __name__ == "__main__":
     env = isaacgymenvs.make(cfg.seed, cfg.task, cfg.num_envs, cfg.sim_device,
                     cfg.rl_device, cfg.graphics_device_id, cfg.headless,
                     cfg.multi_gpu, cfg.capture_video, cfg.force_render, cfg)
-    
     
     
     from isaacgym import torch_utils
@@ -1909,6 +1931,13 @@ if __name__ == "__main__":
     actions = torch.zeros(1000, env.num_envs, 22)
     # actions = torch.sin(torch.arange(0, 1000) / 10).unsqueeze(1).repeat(1, 22).unsqueeze(1).repeat(1, env.num_envs, 1)
 
+    # # setting dof states to loaded npy file
+    # env.shadow_hand_dof_pos = torch.tensor(np.load("allegro_hand_dof_default_pos_spray_close.npy"), device=env.device).float()
+    # env.shadow_hand_dof_vel = torch.zeros_like(env.shadow_hand_dof_pos)
+    # env.shadow_hand_dof_lower_limits = torch.tensor(env.shadow_hand_dof_lower_limits, device=env.device).float()
+    # env.shadow_hand_dof_upper_limits = torch.tensor(env.shadow_hand_dof_upper_limits, device=env.device).float()
+
+
     obs, r, done, info = env.step(actions[0])
 
     t = 0
@@ -1924,8 +1953,8 @@ if __name__ == "__main__":
         action = action.unsqueeze(0).repeat(env.num_envs, 1)
         obs, r, done, info = env.step(action)
         # print(obs)
-        # print("manipulability", env.current_obs_dict["manipulability"])
-        manipulability = env.current_obs_dict["manipulability"]
+        print("manipulability", env.current_obs_dict["manipulability"])
+        # manipulability = env.current_obs_dict["manipulability"]
 
         # print("lower:", env.shadow_hand_dof_lower_limits)
         # print("upper:", env.shadow_hand_dof_upper_limits)

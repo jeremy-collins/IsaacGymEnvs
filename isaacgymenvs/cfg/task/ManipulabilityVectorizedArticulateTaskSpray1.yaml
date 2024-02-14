@@ -12,7 +12,7 @@ defaults:
     - manipulability_reward_vectorized
 
 # used to create the object
-name: ArticulateTask
+name: ArticulateManipTask
 
 physics_engine: ${..physics_engine}
 
@@ -41,7 +41,7 @@ env:
 
   resetPositionNoise: 0.01
   resetRotationNoise: 0.0
-  resetDofPosRandomInterval: 0.2
+  resetDofPosRandomInterval: 0.
   resetDofVelRandomInterval: 0.0
 
   # Random forces applied to the object
@@ -84,7 +84,7 @@ env:
   maxConsecutiveSuccesses: 100
 
   asset:
-    assetFileName: "urdf/kuka_allegro_description/allegro_grasp.urdf"
+    assetFileName: "urdf/kuka_allegro_description/allegro_6dof_wrist.urdf"
     assetFileNameBlock: "urdf/objects/cube_multicolor_allegro.urdf"
     assetFileNameEgg: "mjcf/open_ai_assets/hand/egg.xml"
     assetFileNamePen: "mjcf/open_ai_assets/hand/pen.xml"
