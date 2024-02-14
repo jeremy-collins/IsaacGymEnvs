@@ -58,6 +58,18 @@ def hand_dist(object_pos, hand_palm_pos, fingertip_pos):
 
 
 @torch.jit.script
+def hand_pose_action_penalty(
+    joint_pos, target_joint_pos, joint_deltas, joint_init, alpha: float = 0.5, beta: float = 1.0
+):
+    # combines 3 terms: control error (joint_pos - target_joint_pos), joint velocity (joint_deltas), and drift from default pos
+    return (
+        alpha * torch.linalg.norm(joint_pos - target_joint_pos, dim=-1)
+        + (1 - alpha) * torch.linalg.norm(joint_deltas, dim=-1)
+        + beta * torch.linalg.norm(joint_pos - joint_init, dim=-1)
+    )
+
+
+@torch.jit.script
 def reach_bonus(object_dof_pos, goal_dof_pos, threshold: float = 0.1):
     task_dist = torch.abs(object_dof_pos - goal_dof_pos)
     return torch.where(task_dist < threshold, torch.ones_like(task_dist), torch.zeros_like(task_dist))
