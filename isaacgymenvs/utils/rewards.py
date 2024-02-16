@@ -115,13 +115,14 @@ def manipulability_goal_cond(manipulability, object_pose, goal_pose):
 
 
 @torch.jit.script
-def manipulability_frobenius_norm_vectorized(manipulability, object_pose, goal_pose, actions):
+def manipulability_frobenius_norm_vectorized(manipulability, manip_obs, manip_goal, actions):
+# def manipulability_frobenius_norm_vectorized(manipulability, obs, goal_obs, obs_keys, actions):
     # returns the frobenius norm of the manipulability matrix. The first dimension is the batch dimension
     # manipulability has shape (bs, output_dim) = (num_manips*input_dim, output_dim)
     # TODO: replace object pose with the observations we're using for manipulability
-
     input_dim = actions.shape[-1]
-    output_dim = object_pose.shape[-1]
+    output_dim = manip_obs.shape[-1]
+
     # (num_manips*input_dim, output_dim) -> (num_manips, output_dim, input_dim)
     manipulability_grouped = manipulability.reshape(-1, input_dim, output_dim).transpose(1, 2)
     # print('manipulability_grouped', manipulability_grouped)

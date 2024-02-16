@@ -315,7 +315,6 @@ class ArticulateMinTask(VecTask, IsaacGymCameraBase):
             assert self.device == "cpu", "saveRigidBodyState only works with CPU tensors!"
             initial_state = np.load("initial_state.npy")
             self.gym.set_sim_rigid_body_states(self.sim, initial_state, gymapi.STATE_ALL)
-            # print("set_sim_rigid_body_states in init_sim with result: ", result)
             self.gym.simulate(self.sim)
 
         if self.obs_type == "full_state" or self.asymmetric_obs:
@@ -489,7 +488,6 @@ class ArticulateMinTask(VecTask, IsaacGymCameraBase):
 
         # set shadow_hand dof properties
         shadow_hand_dof_props = self.gym.get_asset_dof_properties(allegro_hand_asset)
-        allegro_hand_default_pos = np.zeros(self.num_shadow_hand_dofs)
 
         self.shadow_hand_dof_lower_limits = []
         self.shadow_hand_dof_upper_limits = []
@@ -500,19 +498,15 @@ class ArticulateMinTask(VecTask, IsaacGymCameraBase):
         # TODO: add option to load different hand initializations per object
         if os.path.exists(self.hand_init_path) and self.load_default_pos:
             allegro_hand_dof_default_pos = np.load(self.hand_init_path)
-            # allegro_hand_default_pos[:6] = 0.
-            # allegro_hand_default_pos[2] = -0.3
             assert len(allegro_hand_dof_default_pos) == self.num_shadow_hand_dofs
         else:
             allegro_hand_dof_default_pos = shadow_hand_dof_props["lower"] * 0.65 + shadow_hand_dof_props["upper"] * 0.35
             allegro_hand_dof_default_pos[:6] = 0.0
-            # allegro_hand_default_pos[2] = -0.3
 
         # self.sensors = []
         # sensor_pose = gymapi.Transform()
 
         for i in range(self.num_shadow_hand_dofs):
-            # self.shadow_hand_dof_default_pos.append(allegro_hand_default_pos[i])
             if self.limit_hand_rotation and 2 < i < 6:
                 self.shadow_hand_dof_lower_limits.append(shadow_hand_dof_props["lower"][i] * 0.01)
                 self.shadow_hand_dof_upper_limits.append(shadow_hand_dof_props["upper"][i] * 0.01)
@@ -695,9 +689,6 @@ class ArticulateMinTask(VecTask, IsaacGymCameraBase):
             else:
                 allegro_hand_frame_origin = init_transform
 
-            # allegro_hand_dof_start_pos[:6] = 0.0
-            print("self.shadow_hand_dof_default_pos before append", self.shadow_hand_dof_default_pos)
-            print("appending allegro_hand_dof_start_pos", allegro_hand_dof_start_pos)
             self.shadow_hand_dof_default_pos.append(allegro_hand_dof_start_pos)
             poses.append((object_start_pose, goal_start_pose, allegro_hand_frame_origin))
 
@@ -708,16 +699,6 @@ class ArticulateMinTask(VecTask, IsaacGymCameraBase):
             max_agg_bodies += max(self.num_object_bodies)
             max_agg_shapes += max(self.num_object_shapes)
         
-        # # compute aggregate size (from Krishnan)
-        # max_agg_bodies = self.num_shadow_hand_bodies + max(self.num_object_bodies) + max(self.num_goal_bodies)
-        # max_agg_shapes = self.num_shadow_hand_shapes + max(self.num_object_shapes) + max(self.num_goal_shapes)
-        # print("shadow_hand_dof_default_pos", self.shadow_hand_dof_default_pos) 
-        # print("shadow_hand_dof_default_pos len", len(self.shadow_hand_dof_default_pos)) 
-        # self.shadow_hand_dof_default_pos = torch.stack(tuple(self.shadow_hand_dof_default_pos), dim=0).repeat(
-        #     (self.num_envs // len(self.object_assets), 1)
-        # )
-
-        print("self.shadow_hand_dof_default_pos", self.shadow_hand_dof_default_pos)
         self.shadow_hand_dof_default_pos = torch.stack(tuple(self.shadow_hand_dof_default_pos), dim=0).repeat(
             (self.num_envs // len(self.object_assets), 1)
         )
@@ -933,7 +914,6 @@ class ArticulateMinTask(VecTask, IsaacGymCameraBase):
         self.goal_object_indices = to_torch(self.goal_object_indices, dtype=torch.long, device=self.device)
 
     def reset_target_pose(self, env_ids, apply_reset=False):
-        # print("resetting goals in reset_target_pose at", env_ids)
         if isinstance(self.object_target_dof_pos, torch.Tensor) and len(self.object_target_dof_pos) > 1:
             object_target_dof = self.object_target_dof_pos.repeat(self.num_envs // self.num_objects).unsqueeze(-1)[
                 env_ids
@@ -962,7 +942,6 @@ class ArticulateMinTask(VecTask, IsaacGymCameraBase):
                 gymtorch.unwrap_tensor(goal_indices),
                 len(env_ids),
             )
-            # print("set_dof_position_target_tensor_indexed in reset_target_pose with result: ", result)
 
             self.gym.set_dof_state_tensor_indexed(
                 self.sim,
@@ -970,7 +949,6 @@ class ArticulateMinTask(VecTask, IsaacGymCameraBase):
                 gymtorch.unwrap_tensor(goal_indices),
                 len(env_ids),
             )
-            # print("set_dof_state_tensor_indexed in reset_target_pose with result: ", result)
 
             # zeroes velocities
             self.root_state_tensor[self.goal_object_indices[env_ids], 7:13] = torch.zeros_like(
@@ -978,7 +956,6 @@ class ArticulateMinTask(VecTask, IsaacGymCameraBase):
             )
 
             if apply_reset and self.load_goal_asset:
-                # print("applying reset in reset_target_pose at", env_ids)
                 goal_object_indices = self.goal_object_indices[env_ids].to(torch.long)
                 if self.prev_bufs is None:
                     self.gym.set_actor_root_state_tensor_indexed(
@@ -987,7 +964,6 @@ class ArticulateMinTask(VecTask, IsaacGymCameraBase):
                         gymtorch.unwrap_tensor(goal_object_indices),
                         len(env_ids),
                     )
-                    # print("set_actor_root_state_tensor_indexed in reset_target_pose with result: ", result)
                 else:
                     self.prev_bufs["prev_actor_root_state_tensor"][goal_object_indices] = self.root_state_tensor[
                         goal_object_indices
@@ -1065,7 +1041,6 @@ class ArticulateMinTask(VecTask, IsaacGymCameraBase):
                 gymtorch.unwrap_tensor(object_indices),
                 len(object_indices),
             )
-            # print("set_actor_root_state_tensor_indexed in reset_idx with result: ", result)
         else:
             self.prev_bufs["prev_actor_root_state_tensor"][object_indices] = self.root_state_tensor[
                 object_indices
@@ -1079,19 +1054,9 @@ class ArticulateMinTask(VecTask, IsaacGymCameraBase):
         )
 
         # reset shadow hand
-        # delta_max = self.shadow_hand_dof_upper_limits - self.shadow_hand_dof_default_pos
-        # delta_min = self.shadow_hand_dof_lower_limits - self.shadow_hand_dof_default_pos
         delta_min = (self.shadow_hand_dof_lower_limits - self.shadow_hand_dof_default_pos)[env_ids]
         delta_max = (self.shadow_hand_dof_upper_limits - self.shadow_hand_dof_default_pos)[env_ids]
-
-        print("env_ids", env_ids)
-        print("len(env_ids)", len(env_ids))
-        print("self.shadow_hand_dof_default_pos[env_ids].shape", self.shadow_hand_dof_default_pos[env_ids].shape)
-        print("rand_floats[:, : self.num_shadow_hand_dofs].shape", rand_floats[:, : self.num_shadow_hand_dofs].shape)
-        print("delta_min.shape", delta_min.shape)
-        print("delta_max.shape", delta_max.shape)
         rand_delta = delta_min + (delta_max - delta_min) * rand_floats[:, : self.num_shadow_hand_dofs]
-        # print("rand_delta.shape", rand_delta.shape)
 
         pos_noise_scale = self.get_or_sample_noise_scale(self.reset_dof_pos_noise)
         vel_noise_scale = self.get_or_sample_noise_scale(self.reset_dof_vel_noise)
@@ -1105,7 +1070,7 @@ class ArticulateMinTask(VecTask, IsaacGymCameraBase):
         self.prev_targets[env_ids, : self.num_shadow_hand_dofs] = pos
         self.cur_targets[env_ids, : self.num_shadow_hand_dofs] = pos
 
-        hand_indices = (self.hand_indices[env_ids] // 2).to(torch.int32)  # TODO: remove this hack
+        hand_indices = (self.hand_indices[env_ids]).to(torch.int32)
 
         if self.prev_bufs is None:
             self.gym.set_dof_state_tensor_indexed(
@@ -1114,7 +1079,6 @@ class ArticulateMinTask(VecTask, IsaacGymCameraBase):
                 gymtorch.unwrap_tensor(hand_indices),
                 len(env_ids),
             )
-            # print("set_dof_state_tensor_indexed in reset_idx")
 
             self.gym.set_dof_position_target_tensor_indexed(
                 self.sim,
@@ -1122,21 +1086,12 @@ class ArticulateMinTask(VecTask, IsaacGymCameraBase):
                 gymtorch.unwrap_tensor(hand_indices),
                 len(env_ids),
             )
-            # print("set_dof_position_target_tensor_indexed in reset_idx")
 
         else:
-            print("hand_indices", hand_indices)
-            # print("self.prev_bufs[prev_dof_state_tensor].shape", self.prev_bufs["prev_dof_state_tensor"].shape)
-            # print("self.prev_bufs[prev_targets].shape", self.prev_bufs["prev_targets"].shape)
-            # print("self.dof_state.shape", self.dof_state.shape)
-            # print("self.prev_targets.shape", self.prev_targets.shape)
-            self.prev_bufs["prev_dof_state_tensor"][hand_indices] = self.dof_state[hand_indices]
-            self.prev_bufs["prev_targets"][hand_indices] = self.prev_targets[hand_indices]
+            self.prev_bufs["prev_dof_state_tensor"] = self.dof_state
+            self.prev_bufs["prev_targets"] = self.prev_targets
 
-        # print("env_ids", env_ids)
-        # print("progress_buf before zeroing", self.progress_buf)
         self.progress_buf[env_ids] = 0
-        # print("progress_buf after zeroing", self.progress_buf)
         self.reset_buf[env_ids] = 0
         self.successes[env_ids] = 0
 
@@ -1154,8 +1109,6 @@ class ArticulateMinTask(VecTask, IsaacGymCameraBase):
         env_ids = self.reset_buf.nonzero(as_tuple=False).squeeze(-1)
         goal_env_ids = self.reset_goal_buf.nonzero(as_tuple=False).squeeze(-1)
 
-        # self.reset_idx([1,2,3]) # TODO: for debugging only, remove this line!!
-
         # if only goals need reset, then call set API
         if len(goal_env_ids) > 0 and len(env_ids) == 0:
             self.reset_target_pose(goal_env_ids, apply_reset=True)
@@ -1165,7 +1118,6 @@ class ArticulateMinTask(VecTask, IsaacGymCameraBase):
             self.reset_target_pose(goal_env_ids)
 
         if len(env_ids) > 0:
-            # print("resetting envs at", env_ids, "with goals at", goal_env_ids)
             self.reset_idx(env_ids, goal_env_ids)
 
         self.actions = actions.clone().to(self.device)
@@ -1252,18 +1204,14 @@ class ArticulateMinTask(VecTask, IsaacGymCameraBase):
 
         if self.prev_bufs is None:
             self.gym.set_dof_position_target_tensor(self.sim, gymtorch.unwrap_tensor(self.cur_targets))
-            # print("set_dof_position_target_tensor in assign_act with result: ", result)
         else:
             self.prev_bufs["prev_targets"] = self.cur_targets
 
     def post_physics_step(self):
-        # print("self.progress_buf before +=", self.progress_buf)
         self.progress_buf += 1
-        # print("self.progress_buf after +=", self.progress_buf)
 
         self.compute_observations()
         self.compute_reward()
-        # print('reward', self.current_rew_dict)
         self.extras["consecutive_successes"] = self.reward_extras["consecutive_successes"].mean()
         self.extras["goal_dist"] = torch.norm(
             self.current_obs_dict["object_pos"] - self.current_obs_dict["goal_pos"],
@@ -1476,15 +1424,10 @@ class ArticulateMinTask(VecTask, IsaacGymCameraBase):
             )
 
     def compute_observations(self, skip_manipulability=False):
-        # print("refreshing (compute_observations in post_physics_step)")
         prev_hand_dof_pos = self.shadow_hand_dof_pos.clone()
         self.gym.refresh_dof_state_tensor(self.sim)
         self.gym.refresh_actor_root_state_tensor(self.sim)
         self.gym.refresh_rigid_body_state_tensor(self.sim)
-
-        # if self.obs_type == "full_state" or self.asymmetric_obs:
-        #     self.gym.refresh_force_sensor_tensor(self.sim)
-        #     self.gym.refresh_dof_force_tensor(self.sim)
 
         if self.num_objects > 1:
             palm_index = [self.palm_index + b for b in self.env_num_bodies]

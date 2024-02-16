@@ -41,7 +41,7 @@ env:
 
   resetPositionNoise: 0.01
   resetRotationNoise: 0.0
-  resetDofPosRandomInterval: 0.
+  resetDofPosRandomInterval: 0.2
   resetDofVelRandomInterval: 0.0
 
   # Random forces applied to the object
@@ -58,34 +58,32 @@ env:
     action_penalty: ${task.rewards.action_penalty}
     reach_bonus: ${task.rewards.reach_bonus}
     fall_penalty: ${task.rewards.drop_penalty}
-    hand_rot_reward: ${task.rewards.hand_rot_reward}
     manipulability_reward_vectorized: ${task.rewards.manipulability_reward_vectorized}
    
   fallPenalty: 0.0
 
+  useOneHot: true  
   objectType: 
     # - "dispenser"
-    - "spray_bottle" # can be block, egg or pen
-  objectInstance:
-    spray_bottle: 
-      - 0
+    - "scissors" # can be block, egg or pen
   objectDofName: "joint_0"
   objectDofTargetPos: 
-    - 0.075  # 0.05 for spray_bottle
+    - 0.2
   scaleDofPos: false
-  objectMassBaseOnly: true
-  objectMass: 10
+  objectMass: 1
   objectStiffness: 3
   objectDamping: 0.1
-  fixObjectBase: false
+  fixObjectBase: true
   observationType: "full_state" # can be "no_vel", "full_state", "full"
   asymmetric_observations: False
   printNumSuccesses: False
-  maxConsecutiveSuccesses: 100
-  loadGoalAsset: False #True
-  
+  maxConsecutiveSuccesses: 0
+
+  # set to True if you use camera sensors in the environment
+  enableCameraSensors: False
+
   asset:
-    assetFileName: "urdf/kuka_allegro_description/allegro_6dof_wrist.urdf"
+    assetFileName: "urdf/kuka_allegro_description/allegro_grasp_fixed.urdf"
     assetFileNameBlock: "urdf/objects/cube_multicolor_allegro.urdf"
     assetFileNameEgg: "mjcf/open_ai_assets/hand/egg.xml"
     assetFileNamePen: "mjcf/open_ai_assets/hand/pen.xml"
@@ -95,6 +93,7 @@ env:
       - "urdf/objects/spray_bottle/mobility.urdf"
       - "urdf/objects/spray_bottle2/mobility.urdf"
     assetFileNameDispenser: "urdf/objects/dispenser/mobility.urdf"
+    assetFileNameScissors: "urdf/objects/scissors/mobility.urdf"
 
 task:
   randomize: False
@@ -189,9 +188,6 @@ task:
             distribution: "uniform"
             # schedule: "linear"  # "linear" will scale the current random sample by `min(current num steps, schedule_steps) / schedule_steps`
             # schedule_steps: 30000
-
-  # set to True if you use camera sensors in the environment
-  enableCameraSensors: False
 
 sim:
   dt: 0.01667 # 1/60

@@ -4,7 +4,9 @@ manipulability_reward_vectorized:
     _target_: isaacgymenvs.utils.rewards.manipulability_frobenius_norm_vectorized
   args:
     - manipulability
-    - object_pose
-    - goal_pose
+    # - object_pose
+    # - goal_pose
+    - manip_obs
+    - manip_goal
     - actions
   scale: 1

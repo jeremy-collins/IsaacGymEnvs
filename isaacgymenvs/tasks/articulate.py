@@ -953,7 +953,7 @@ class ArticulateTask(VecTask, IsaacGymCameraBase):
             )
 
             if apply_reset and self.load_goal_asset:
-                # print("applying reset in reset_target_pose at", env_ids)
+                print("applying reset in reset_target_pose at", env_ids)
                 goal_object_indices = self.goal_object_indices[env_ids].to(torch.long)
                 if self.prev_bufs_manip is None:
                     self.gym.set_actor_root_state_tensor_indexed(
@@ -1069,7 +1069,9 @@ class ArticulateTask(VecTask, IsaacGymCameraBase):
         self.cur_targets[env_ids, : self.num_shadow_hand_dofs] = pos
 
         hand_indices = self.hand_indices[env_ids].to(torch.int32) # TODO: check this for out of bounds error
+        
         if self.prev_bufs_manip is None:
+            print("self.dof_state.shape", self.dof_state.shape)
             self.gym.set_dof_state_tensor_indexed(
                 self.sim,
                 gymtorch.unwrap_tensor(self.dof_state),
@@ -1077,7 +1079,7 @@ class ArticulateTask(VecTask, IsaacGymCameraBase):
                 len(env_ids),
             )
             # print("set_dof_state_tensor_indexed in reset_idx")
-
+            print("self.prev_targets.shape", self.prev_targets.shape)
             self.gym.set_dof_position_target_tensor_indexed(
                 self.sim,
                 gymtorch.unwrap_tensor(self.prev_targets),
@@ -1090,10 +1092,18 @@ class ArticulateTask(VecTask, IsaacGymCameraBase):
             print("hand_indices", hand_indices)
             # print("self.prev_bufs_manip[prev_dof_state_tensor].shape", self.prev_bufs_manip["prev_dof_state_tensor"].shape)
             # print("self.prev_bufs_manip[prev_targets].shape", self.prev_bufs_manip["prev_targets"].shape)
-            # print("self.dof_state.shape", self.dof_state.shape)
-            # print("self.prev_targets.shape", self.prev_targets.shape)
-            self.prev_bufs_manip["prev_dof_state_tensor"][hand_indices] = self.dof_state[hand_indices]
-            self.prev_bufs_manip["prev_targets"][hand_indices] = self.prev_targets[hand_indices]
+
+            print("prev_targets", self.prev_targets)
+            dof_state_reshaped = self.dof_state.view(self.num_envs, -1, 2) # (num_envs, 23, 2)
+
+            # # we want to set the first 22 of the 23 dofs
+            # reset_dof_indices = torch.arange(22, device=self.device).view(1, -1).repeat(len(env_ids), 1) # (num_envs, 22)
+            # self.prev_bufs_manip["prev_dof_state_tensor"][hand_indices] = self.dof_state[hand_indices]
+            # self.prev_bufs_manip["prev_targets"][hand_indices] = self.prev_targets[hand_indices]
+
+            # setting all dofs instead of just the hand dofs
+            self.prev_bufs_manip["prev_dof_state_tensor"] = self.dof_state
+            self.prev_bufs_manip["prev_targets"] = self.prev_targets
 
         self.progress_buf[env_ids] = 0
         self.reset_buf[env_ids] = 0
@@ -1109,54 +1119,59 @@ class ArticulateTask(VecTask, IsaacGymCameraBase):
         ret = VecTask.reset(self)
         return ret
 
-    def get_hand_in_contact(self):
-        # Doesn't work in GPU mode
-        # rigid_contacts = self.gym.get_rigid_contacts(self.sim)
-        # rigid_contact_mask = ~((rigid_contacts["body1"] == -1) | (rigid_contacts["body0"] == -1))
-        # hand_in_contact = torch.zeros(self.num_envs, device=self.device)  # boolean vector indicating envs with hand in contact
-        # b0, b1 = rigid_contacts["body0"][rigid_contact_mask], rigid_contacts["body1"][rigid_contact_mask]
-        # for b_0, b_1 in zip(b0, b1):
-        #     # check if body0 is hand or object, and body1 is object or hand using self.object_rb_handles, and self.shadow_hand_rb_handles
-        #     if b_0 in self.object_rb_handles and b_1 in self.shadow_hand_rb_handles:
-        #         hand_in_contact[b_1 // self.env_num_bodies] = 1
-        #     elif b_1 in self.object_rb_handles and b_0 in self.shadow_hand_rb_handles:
-        #         hand_in_contact[b_1 // self.env_num_bodies] = 1
-        #     else:
-        #         breakpoint()
+    # def get_hand_in_contact(self):
+    #     # Doesn't work in GPU mode
+    #     # rigid_contacts = self.gym.get_rigid_contacts(self.sim)
+    #     # rigid_contact_mask = ~((rigid_contacts["body1"] == -1) | (rigid_contacts["body0"] == -1))
+    #     # hand_in_contact = torch.zeros(self.num_envs, device=self.device)  # boolean vector indicating envs with hand in contact
+    #     # b0, b1 = rigid_contacts["body0"][rigid_contact_mask], rigid_contacts["body1"][rigid_contact_mask]
+    #     # for b_0, b_1 in zip(b0, b1):
+    #     #     # check if body0 is hand or object, and body1 is object or hand using self.object_rb_handles, and self.shadow_hand_rb_handles
+    #     #     if b_0 in self.object_rb_handles and b_1 in self.shadow_hand_rb_handles:
+    #     #         hand_in_contact[b_1 // self.env_num_bodies] = 1
+    #     #     elif b_1 in self.object_rb_handles and b_0 in self.shadow_hand_rb_handles:
+    #     #         hand_in_contact[b_1 // self.env_num_bodies] = 1
+    #     #     else:
+    #     #         breakpoint()
 
-        contact_forces = self.net_cf.view(-1, self.env_num_bodies, 3)
-        hand_in_contact = torch.zeros_like(self.reset_buf)
-        # compute hand_in_contact when contact forces between hand and object are non-zero per env
-        obj_indices, hand_indices = self.object_rb_handles, self.shadow_hand_rb_handles.flatten()
-        contact_envs = (contact_forces[:, obj_indices].any(dim=-1).any(dim=-1)) & (
-            contact_forces[:, hand_indices].any(dim=-1).any(dim=-1)
-        )
-        contact_env_ids = contact_envs.nonzero()
-        if len(contact_env_ids) == 0:
-            return hand_in_contact
-        contact_forces = contact_forces[contact_envs]
-        # 1 if any contact force for the object is non-zero and identical (but negative) on any corresponding body from the hand
-        x = contact_forces[:, self.object_rb_handles]  # .nonzero()
-        y = -contact_forces[:, self.shadow_hand_rb_handles.flatten()]  # .any(dim=-1).nonzero()
-        # X: N, M, 3, Y: N, K, 3, X == Y: N, M, K
-        x_eq_y = (x[:, None, :, :] == y[:, :, None, :]).all(dim=-1).any(dim=-1).any(dim=-1)
-        hand_in_contact[contact_env_ids[x_eq_y]] = 1
-        return hand_in_contact
+    #     contact_forces = self.net_cf.view(-1, self.env_num_bodies, 3)
+    #     hand_in_contact = torch.zeros_like(self.reset_buf)
+    #     # compute hand_in_contact when contact forces between hand and object are non-zero per env
+    #     obj_indices, hand_indices = self.object_rb_handles, self.shadow_hand_rb_handles.flatten()
+    #     contact_envs = (contact_forces[:, obj_indices].any(dim=-1).any(dim=-1)) & (
+    #         contact_forces[:, hand_indices].any(dim=-1).any(dim=-1)
+    #     )
+    #     contact_env_ids = contact_envs.nonzero()
+    #     if len(contact_env_ids) == 0:
+    #         return hand_in_contact
+    #     contact_forces = contact_forces[contact_envs]
+    #     # 1 if any contact force for the object is non-zero and identical (but negative) on any corresponding body from the hand
+    #     x = contact_forces[:, self.object_rb_handles]  # .nonzero()
+    #     y = -contact_forces[:, self.shadow_hand_rb_handles.flatten()]  # .any(dim=-1).nonzero()
+    #     # X: N, M, 3, Y: N, K, 3, X == Y: N, M, K
+    #     x_eq_y = (x[:, None, :, :] == y[:, :, None, :]).all(dim=-1).any(dim=-1).any(dim=-1)
+    #     hand_in_contact[contact_env_ids[x_eq_y]] = 1
+    #     return hand_in_contact
 
     def pre_physics_step(self, actions):
         self.extras = {}
         env_ids = self.reset_buf.nonzero(as_tuple=False).squeeze(-1)
         goal_env_ids = self.reset_goal_buf.nonzero(as_tuple=False).squeeze(-1)
 
+        # self.reset_idx(torch.arange(self.num_envs, device=self.device) * 2)
+
         # if only goals need reset, then call set API
         if len(goal_env_ids) > 0 and len(env_ids) == 0:
+            print("resetting goals with reset")
             self.reset_target_pose(goal_env_ids, apply_reset=True)
 
         # if goals need reset in addition to other envs, call set API in reset()
         elif len(goal_env_ids) > 0:
+            print("resetting goals without reset")
             self.reset_target_pose(goal_env_ids)
 
         if len(env_ids) > 0:
+            print("resetting envs and goals")
             self.reset_idx(env_ids, goal_env_ids)
 
         self.actions = actions.clone().to(self.device)
@@ -1167,8 +1182,8 @@ class ArticulateTask(VecTask, IsaacGymCameraBase):
 
         # get rb forces
         force_noise_scale = self.get_or_sample_noise_scale(self.force_scale)
-        hand_in_contact = self.get_hand_in_contact()
-        if force_noise_scale > 0.0 and hand_in_contact.any():
+        # hand_in_contact = self.get_hand_in_contact()
+        if force_noise_scale > 0.0: # and hand_in_contact.any():
             self.rb_forces *= torch.pow(self.force_decay, self.dt / self.force_decay_interval)
 
             # apply new forces
@@ -1603,6 +1618,14 @@ class ArticulateTask(VecTask, IsaacGymCameraBase):
         obs_dict["object_instance_one_hot"] = object_instance_one_hot.to(self.device)
         obs_dict["object_type_one_hot"] = object_type_one_hot.to(self.device)
 
+        obs_keys_manip = ["object_pose", "object_dof_pos"]
+        goal_keys_manip = ["goal_pose", "goal_dof_pos"]
+        # obs_keys_manip = ["object_pose"]
+        # goal_keys_manip = ["goal_pose"]
+
+        obs_dict["manip_obs"] = obs_dict_to_tensor(obs_dict, obs_keys_manip, self.num_envs, self.device)
+        obs_dict["manip_goal"] = obs_dict_to_tensor(obs_dict, goal_keys_manip, self.num_envs, self.device)
+
         # checking for the word "manipulability" in the reward_params keys
         if not skip_manipulability and any(["manipulability" in key for key in self.reward_params.keys()]):
             # creating copies of every variable manipulability interacts with
@@ -1655,7 +1678,9 @@ class ArticulateTask(VecTask, IsaacGymCameraBase):
                 "asset_files_dict": dict(self.asset_files_dict),
                 "num_obs_dict": dict(self.num_obs_dict),
                 "obs_type": str(self.obs_type),
-                "obs_keys_manip": ["object_pose"],
+                "obs_keys_manip": obs_keys_manip,
+                # "manip_obs": obs_dict["manip_obs"].clone().to(self.device),
+                # "manip_goal": obs_dict["manip_goal"].clone().to(self.device),
                 "f": manip_step,
                 "actions": self.actions.clone(),
                 "act_moving_average": float(self.act_moving_average),
@@ -1667,10 +1692,13 @@ class ArticulateTask(VecTask, IsaacGymCameraBase):
 
             if "manipulability_reward" in self.reward_params.keys():
                 obs_dict["manipulability"], self.prev_bufs_manip = get_manipulability_fd(manip_args)
+                # obs_dict["manipulability"], _ = get_manipulability_fd(manip_args)
             elif "manipulability_reward_vectorized" in self.reward_params.keys():
                 obs_dict["manipulability"], self.prev_bufs_manip = get_manipulability_fd_parallel_actions(manip_args)
+                # obs_dict["manipulability"], _ = get_manipulability_fd_parallel_actions(manip_args)
             elif "manipulability_reward_vec" in self.reward_params.keys():
                 obs_dict["manipulability"], self.prev_bufs_manip = get_manipulability_fd_rand_vec(manip_args)
+                # obs_dict["manipulability"], _ = get_manipulability_fd_rand_vec(manip_args)
             else:
                 raise NotImplementedError
 
@@ -1811,15 +1839,31 @@ def get_action(t):
     actions[:, 0] = - (np.sin(t-6/250 * np.pi))
     return torch.tensor(actions, device=env.device).float()
 
-def optimize_action(action, manipulability, obj_curr, obj_des, max_iters=100, alpha=.00001):
+def optimize_action(action, manipulability, obj_curr, obj_des, max_iters=1000, alpha=.0001, clip_grad=None):
     for i in range(max_iters):
+        # weighting the trigger more than the pose
+        # obj_curr[-1] *= 2
+        # obj_des[-1] *= 2
         C = torch.norm(obj_curr - obj_des)
         M = manipulability
-        print("cost", C)
         dC = 2 * (M @ M.T) @ action - 2 * M @ (obj_curr - obj_des)
-        print("cost grad", dC)
+        # print("cost", C)
+        # print("cost grad", dC)
+        # print("grad norm", torch.norm(dC))
+
+        # gradient clipping
+        if clip_grad is not None and torch.norm(dC) > clip_grad:
+            print("clipping grad to", clip_grad)
+            dC = dC / torch.norm(dC)
+
         action -= alpha * dC
-        print("new action", action)
+        # print("new action", action)
+    # normalizing the action if greater than 0.01
+    action_mag = 0.01
+    print("action norm: ", torch.norm(action))
+    if torch.norm(action) > action_mag:
+        action = action / torch.norm(action) * action_mag
+
     return action
                                                    
 if __name__ == "__main__":
@@ -1841,7 +1885,8 @@ if __name__ == "__main__":
                                                    "sim_device=cpu", 
                                                    "test=true",
                                                    "task.env.useRelativeControl=true",
-                                                   "+task.env.hand_init_path=allegro_hand_dof_default_pos_spray_close.npy",
+                                                #    "+task.env.hand_init_path=allegro_hand_dof_default_pos_spray_closer.npy",
+                                                   "+task.env.hand_init_path=allegro_hand_dof_default_pos_spray_3.npy",
                                                 #    "task.env.resetDofPosRandomInterval=0.",
                                                 #    "task.env.load_default_pos=true",
                                                 #    "checkpoint=./runs/full_state_spray/nn/full_state_spray.pth",
@@ -1875,38 +1920,41 @@ if __name__ == "__main__":
     
     print(env.shadow_hand_dof_pos[0])
     print("env.num_envs", env.num_envs)
-    actions = torch.zeros(1000, env.num_envs, 22)
+    # actions = torch.zeros(100000, env.num_envs, 22)
     # actions = torch.sin(torch.arange(0, 1000) / 10).unsqueeze(1).repeat(1, 22).unsqueeze(1).repeat(1, env.num_envs, 1)
+    initial_action = torch.zeros(env.num_envs, 22)
 
-    # # setting dof states to loaded npy file
-    # env.shadow_hand_dof_pos = torch.tensor(np.load("allegro_hand_dof_default_pos_spray_close.npy"), device=env.device).float()
-    # env.shadow_hand_dof_vel = torch.zeros_like(env.shadow_hand_dof_pos)
-    # env.shadow_hand_dof_lower_limits = torch.tensor(env.shadow_hand_dof_lower_limits, device=env.device).float()
-    # env.shadow_hand_dof_upper_limits = torch.tensor(env.shadow_hand_dof_upper_limits, device=env.device).float()
-
-
-    obs, r, done, info = env.step(actions[0])
+    obs, r, done, info = env.step(initial_action)
 
     t = 0
     hand_vels, palm_pos = [], []
     dof_pos = []
 
-    # while True:
+    while True:
     # while t < 500:
-    for action in actions:
-        t += 1
-        # action = get_action(-6)
-        action = optimize_action(action[0], env.current_obs_dict["manipulability"], env.current_obs_dict["object_pose"][0], env.current_obs_dict["goal_pose"][0])
+        # t += 1
+    # for action in actions:
+        initial_action = torch.zeros(env.num_envs, 22)
+        # action = optimize_action(initial_action[0], env.current_obs_dict["manipulability"], env.current_obs_dict["object_pose"][0], env.current_obs_dict["goal_pose"][0])
+        action = initial_action[0]
+        # manip_obs_weight = torch.ones_like(env.current_obs_dict["manip_obs"])
+        # manip_obs_weight[:, -1] = 10
+        action = optimize_action(initial_action[0], env.current_obs_dict["manipulability"], env.current_obs_dict["manip_obs"][0], env.current_obs_dict["manip_goal"][0], clip_grad=1.)
+        # adding noise to the optimal action
+        # action[6:] += torch.randn_like(action[6:]) * 0.01
         action = action.unsqueeze(0).repeat(env.num_envs, 1)
         obs, r, done, info = env.step(action)
+
         # print(obs)
-        print("manipulability", env.current_obs_dict["manipulability"])
-        # manipulability = env.current_obs_dict["manipulability"]
+        print("manip_obs", env.current_obs_dict["manip_obs"][0])
+        print("manip_goal", env.current_obs_dict["manip_goal"][0])
+        # print("manipulability", env.current_obs_dict["manipulability"])
+        print("hand dofs pos: ", env.shadow_hand_dof_pos[0])
+        print("error from goal: ", env.current_obs_dict["manip_obs"][0] - env.current_obs_dict["manip_goal"][0])
 
         # print("lower:", env.shadow_hand_dof_lower_limits)
         # print("upper:", env.shadow_hand_dof_upper_limits)
         # env_ids = done.nonzero(as_tuple=False).squeeze(-1)
-        print("hand dof pos: ", env.shadow_hand_dof_pos[0])
         # goal_env_ids = env.reset_goal_buf.nonzero(as_tuple=False).squeeze(-1)
         # env.object_dof_vel[:] = 0
         # env.object_linvel[:] = 0

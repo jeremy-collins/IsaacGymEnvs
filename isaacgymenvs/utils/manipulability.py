@@ -262,13 +262,19 @@ def manip_step(
         )
 
 def manip_reset(gym, sim, prev_actor_root_state_tensor, prev_dof_state_tensor, prev_rigid_body_tensor, prev_targets):
-    result = gym.set_actor_root_state_tensor(
+    # printing shapes
+    # print("prev_actor_root_state_tensor", prev_actor_root_state_tensor.shape)
+    # print("prev_dof_state_tensor", prev_dof_state_tensor.shape)
+    # print("prev_rigid_body_tensor", prev_rigid_body_tensor.shape)
+    # print("prev_targets", prev_targets.shape)
+         
+    gym.set_actor_root_state_tensor(
         sim,
         gymtorch.unwrap_tensor(prev_actor_root_state_tensor)
     )
     # print("set_actor_root_state_tensor in manip_reset with result", result)
 
-    result = gym.set_dof_state_tensor(
+    gym.set_dof_state_tensor(
         sim,
         gymtorch.unwrap_tensor(prev_dof_state_tensor)
     )
@@ -280,7 +286,7 @@ def manip_reset(gym, sim, prev_actor_root_state_tensor, prev_dof_state_tensor, p
     #     gymtorch.unwrap_tensor(prev_rigid_body_tensor)
     # )
 
-    result = gym.set_dof_position_target_tensor(
+    gym.set_dof_position_target_tensor(
         sim,
         gymtorch.unwrap_tensor(prev_targets),
     )
@@ -353,6 +359,12 @@ def get_manipulability_fd_parallel_actions(kwargs):
     
     num_manips = bs // (input_dim * 2)
 
+    # printing state tensor shapes
+    # print("root_state_tensor", kwargs["root_state_tensor"].shape)
+    # print("dof_state_tensor", kwargs["dof_state_tensor"].shape)
+    # print("rigid_body_states", kwargs["rigid_body_states"].shape)
+    # print("prev_targets", kwargs["prev_targets"].shape)
+
     # copying states so we can compute manipulability in parallel
     actor_root_state_tensor_rows = kwargs["root_state_tensor"].view(bs, 2, 13)[0::(input_dim * 2)] # (num_manips, 2, 13) select every (input_dim*2)-th row
     initial_actor_root_state_tensor_copied_rows = actor_root_state_tensor_rows.repeat_interleave((input_dim * 2), dim=0) # (num_manips*input_dim*2, 2, 13) copy each row input_dim times
@@ -392,6 +404,13 @@ def get_manipulability_fd_parallel_actions(kwargs):
         "prev_rigid_body_tensor": initial_rigid_body_tensor_copied.clone(),
         "prev_targets": initial_prev_target_tensor_copied.clone()
     }
+
+    # prev_bufs_manip = {
+    #     "prev_actor_root_state_tensor": kwargs["root_state_tensor"].clone(),
+    #     "prev_dof_state_tensor": kwargs["dof_state_tensor"].clone(),
+    #     "prev_rigid_body_tensor": kwargs["rigid_body_states"].clone(),
+    #     "prev_targets": kwargs["prev_targets"].clone()
+    # }
 
     return manipulability_fd, prev_bufs_manip
 
