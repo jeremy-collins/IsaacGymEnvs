@@ -83,7 +83,10 @@ class ArticulateTask(VecTask, IsaacGymCameraBase):
         self.reward_params = rewards.parse_reward_params(cfg["env"]["rewardParams"])
         assert "fall_penalty" in self.reward_params
         assert "reach_bonus" in self.reward_params
-        self.reach_bonus = self.reward_params["reach_bonus"]
+        self.reach_bonus = list(self.reward_params["reach_bonus"])
+        self.reach_bonus_coef = self.reward_params["reach_bonus"][2]
+        self.reach_bonus_schedule = cfg["env"].get("reachBonusSchedule", "constant")
+        self.reach_bonus_interval = cfg["env"].get("reachBonusInterval", 16 * 500)  # 1000 16 step epochs
         self.success_tolerance = cfg["env"].get(
             "success_tolerance", 0.005
         )  # TODO: rename to either reach-threshold or success-tolerance
@@ -95,10 +98,12 @@ class ArticulateTask(VecTask, IsaacGymCameraBase):
 
         self.object_target_dof_name = self.cfg["env"]["objectDofName"]
         self.object_target_dof_pos = self.cfg["env"]["objectDofTargetPos"]
+        self.object_target_dof_randomize = self.cfg["env"].get("objectDofTargetRandomize", False)
+        self.object_start_dof_randomize = self.cfg["env"].get("objectDofInitRandomize", False)
         self.scale_dof_pos = self.cfg["env"].get("scaleDofPos", False)
         if not isinstance(self.object_target_dof_pos, (ListConfig, list)):
             self.object_target_dof_pos = [self.object_target_dof_pos]
-        self.object_target_dof_pos = to_torch(self.object_target_dof_pos, device=sim_device, dtype=torch.float)
+        self.object_target_dof_pos = to_torch(self.object_target_dof_pos, device=sim_device, dtype=torch.float).view(-1, 1).repeat(self.cfg["env"]["numEnvs"] // len(self.object_target_dof_pos), 1)
         # else:
         #     raise AssertionError("objectDofTargetPos must be a list")
 
@@ -197,11 +202,7 @@ class ArticulateTask(VecTask, IsaacGymCameraBase):
         use_object_instances = use_object_instances or max_obj_instances > 1
         self.max_obj_instances = max_obj_instances
         self.num_objects = num_objects
-        assert len(self.object_target_dof_pos) == 1 or len(self.object_target_dof_pos) == self.num_objects, (
-            f"objectDofTargetPos must be a list of length 1 or {self.num_objects}"
-            if self.num_objects > 1
-            else "objectDofTargetPos must be a list of length 1"
-        )
+        
         self.obs_type = self.cfg["env"]["observationType"]
         assert self.cfg["env"]["numActions"] in [17, 22], "Only 17 and 22 DoF hands are supported"
         full_state_dim = 98 if self.cfg["env"]["numActions"] == 22 else 85
@@ -298,8 +299,9 @@ class ArticulateTask(VecTask, IsaacGymCameraBase):
         actor_root_state_tensor = self.gym.acquire_actor_root_state_tensor(self.sim)
         dof_state_tensor = self.gym.acquire_dof_state_tensor(self.sim)
         rigid_body_tensor = self.gym.acquire_rigid_body_state_tensor(self.sim)
-        _net_cf = self.gym.acquire_net_contact_force_tensor(self.sim)
-        self.net_cf = gymtorch.wrap_tensor(_net_cf)
+        if self.force_scale > 0.:
+            _net_cf = self.gym.acquire_net_contact_force_tensor(self.sim)
+            self.net_cf = gymtorch.wrap_tensor(_net_cf)
 
         if self.cfg["env"].get("saveRigidBodyState", False):
             assert self.device == "cpu", "saveRigidBodyState only works with CPU tensors!"
@@ -324,7 +326,8 @@ class ArticulateTask(VecTask, IsaacGymCameraBase):
         self.gym.refresh_actor_root_state_tensor(self.sim)
         self.gym.refresh_dof_state_tensor(self.sim)
         self.gym.refresh_rigid_body_state_tensor(self.sim)
-        self.gym.refresh_net_contact_force_tensor(self.sim)
+        if self.force_scale > 0.:
+            self.gym.refresh_net_contact_force_tensor(self.sim)
 
         self.dof_state = gymtorch.wrap_tensor(dof_state_tensor)
         self.shadow_hand_dof_state = self.dof_state.view(self.num_envs, -1, 2)[:, : self.num_shadow_hand_dofs]
@@ -344,7 +347,7 @@ class ArticulateTask(VecTask, IsaacGymCameraBase):
             self.object_dof_vel = self.object_dof_state[..., 1]
 
         if self.num_objects > 1:
-            assert self.num_envs % self.num_objects == 0, "Number of objects should ebvenly divide number of envs!"
+            assert self.num_envs % self.num_objects == 0, "Number of objects should evenly divide number of envs!"
             # need to do this since number of object bodies varies per object instance
             self.rigid_body_states = gymtorch.wrap_tensor(rigid_body_tensor).view(
                 self.num_envs // self.num_objects, -1, 13
@@ -503,12 +506,8 @@ class ArticulateTask(VecTask, IsaacGymCameraBase):
         # sensor_pose = gymapi.Transform()
 
         for i in range(self.num_shadow_hand_dofs):
-            if self.limit_hand_rotation and 2 < i < 6:
-                self.shadow_hand_dof_lower_limits.append(shadow_hand_dof_props["lower"][i] * 0.01)
-                self.shadow_hand_dof_upper_limits.append(shadow_hand_dof_props["upper"][i] * 0.01)
-            else:
-                self.shadow_hand_dof_lower_limits.append(shadow_hand_dof_props["lower"][i])
-                self.shadow_hand_dof_upper_limits.append(shadow_hand_dof_props["upper"][i])
+            self.shadow_hand_dof_lower_limits.append(shadow_hand_dof_props["lower"][i])
+            self.shadow_hand_dof_upper_limits.append(shadow_hand_dof_props["upper"][i])
             self.shadow_hand_dof_default_vel.append(0.0)
 
             # print("Max effort: ", shadow_hand_dof_props["effort"][i])
@@ -685,10 +684,13 @@ class ArticulateTask(VecTask, IsaacGymCameraBase):
             poses.append((object_start_pose, goal_start_pose, allegro_hand_frame_origin))
 
         # compute aggregate size
-        max_agg_bodies = self.num_shadow_hand_bodies + max(self.num_object_bodies) + max(self.num_goal_bodies)
-        max_agg_shapes = self.num_shadow_hand_shapes + max(self.num_object_shapes) + max(self.num_goal_shapes)
+        max_agg_bodies = self.num_shadow_hand_bodies + max(self.num_object_bodies)
+        max_agg_shapes = self.num_shadow_hand_shapes + max(self.num_object_shapes)
+        if self.load_goal_asset:
+            max_agg_bodies += max(self.num_object_bodies)
+            max_agg_shapes += max(self.num_object_shapes)
 
-        self.shadow_hand_dof_default_pos = torch.stack(self.shadow_hand_dof_default_pos, dim=0).repeat(
+        self.shadow_hand_dof_default_pos = torch.stack(tuple(self.shadow_hand_dof_default_pos), dim=0).repeat(
             (self.num_envs // len(self.object_assets), 1)
         )
         # self.shadow_hand_dof_default_pos[:, :6] = 0
@@ -903,12 +905,11 @@ class ArticulateTask(VecTask, IsaacGymCameraBase):
         self.goal_object_indices = to_torch(self.goal_object_indices, dtype=torch.long, device=self.device)
 
     def reset_target_pose(self, env_ids, apply_reset=False):
-        if isinstance(self.object_target_dof_pos, torch.Tensor) and len(self.object_target_dof_pos) > 1:
-            object_target_dof = self.object_target_dof_pos.repeat(self.num_envs // self.num_objects).unsqueeze(-1)[
-                env_ids
-            ]
-        else:
-            object_target_dof = self.object_target_dof_pos  # TODO: resample goal dof state here
+        if self.object_target_dof_randomize:
+            object_ids = env_ids % self.num_objects
+            rand_float = torch_rand_float(-1, 1, (len(env_ids), 1), device=self.device)
+            self.object_target_dof_pos[env_ids] = scale(rand_float, self.object_dof_lower_limits[object_ids], self.object_dof_upper_limits[object_ids])
+        object_target_dof = self.object_target_dof_pos[env_ids]  # TODO: resample goal dof state here
 
         # sets goal object position and rotation and dof pos
         if self.load_goal_asset:
@@ -953,18 +954,18 @@ class ArticulateTask(VecTask, IsaacGymCameraBase):
                 )
         self.reset_goal_buf[env_ids] = 0
 
-    def get_or_sample_noise_scale(self, param: Union[float, dict]):
+    def get_or_apply_param_schedule(self, param: Union[float, dict]):
         if isinstance(param, float):
             noise_scale = param
         elif isinstance(param, dict):
             self.last_step = self.gym.get_frame_count(self.sim)
-            sched_type = param["schedule"]
+            sched_type = param.get("schedule", "constant")
             if sched_type == "linear":
                 sched_steps = param["schedule_steps"]
                 sched_scaling = 1 / sched_steps * min(self.last_step, sched_steps)
             elif sched_type == "constant":
                 sched_scaling = float(self.last_step > param.get("schedule_steps", 0))
-            low, high = param["range"]
+            low, high = param.get("range")
             noise_scale = low + (high - low) * sched_scaling
         else:
             raise ValueError(f"Invalid reset_position_noise: {param} must be float or dict")
@@ -991,7 +992,7 @@ class ArticulateTask(VecTask, IsaacGymCameraBase):
 
         # reset object position/orientation
         self.root_state_tensor[self.object_indices[env_ids]] = self.object_init_state[env_ids].clone()
-        pose_noise_scale = self.get_or_sample_noise_scale(self.reset_position_noise)
+        pose_noise_scale = self.get_or_apply_param_schedule(self.reset_position_noise)
 
         # TODO: disentangle object pose noise and dof_pose noise
         object_pose_noise = pose_noise_scale * rand_floats[:, :13]
@@ -1034,8 +1035,8 @@ class ArticulateTask(VecTask, IsaacGymCameraBase):
         delta_min = self.shadow_hand_dof_lower_limits - self.shadow_hand_dof_default_pos[env_ids]
         rand_delta = delta_min + (delta_max - delta_min) * rand_floats[:, : self.num_shadow_hand_dofs]
 
-        pos_noise_scale = self.get_or_sample_noise_scale(self.reset_dof_pos_noise)
-        vel_noise_scale = self.get_or_sample_noise_scale(self.reset_dof_vel_noise)
+        pos_noise_scale = self.get_or_apply_param_schedule(self.reset_dof_pos_noise)
+        vel_noise_scale = self.get_or_apply_param_schedule(self.reset_dof_vel_noise)
 
         pos = self.shadow_hand_dof_default_pos[env_ids] + pos_noise_scale * rand_delta
         self.shadow_hand_dof_pos[env_ids, :] = pos
@@ -1046,6 +1047,10 @@ class ArticulateTask(VecTask, IsaacGymCameraBase):
         self.prev_targets[env_ids, : self.num_shadow_hand_dofs] = pos
         self.cur_targets[env_ids, : self.num_shadow_hand_dofs] = pos
 
+        if self.object_start_dof_randomize:
+            object_ids = env_ids % self.num_objects
+            self.object_dof_pos[env_ids, :] = scale(rand_floats[env_ids, :self.num_object_dofs], self.object_dof_lower_limits[object_ids], self.object_dof_upper_limits[object_ids])
+
         hand_indices = self.hand_indices[env_ids].to(torch.int32)
         self.gym.set_dof_position_target_tensor_indexed(
             self.sim,
@@ -1054,6 +1059,8 @@ class ArticulateTask(VecTask, IsaacGymCameraBase):
             len(env_ids),
         )
 
+        if self.object_start_dof_randomize:
+            hand_indices = torch.cat([hand_indices, self.object_indices[env_ids].to(torch.int32)])
         self.gym.set_dof_state_tensor_indexed(
             self.sim,
             gymtorch.unwrap_tensor(self.dof_state),
@@ -1128,32 +1135,39 @@ class ArticulateTask(VecTask, IsaacGymCameraBase):
         self.actions = actions.clone().to(self.device)
         self.assign_act(self.actions)
 
+        if self.reach_bonus_schedule == "step":
+            self.last_step = self.gym.get_frame_count(self.sim)
+            self.reach_bonus[2] = self.reach_bonus_coef * ((self.last_step // self.reach_bonus_interval) > 0)
+            self.reward_params['reach_bonus'] = self.reach_bonus
+
         # get rb forces
-        force_noise_scale = self.get_or_sample_noise_scale(self.force_scale)
-        hand_in_contact = self.get_hand_in_contact()
-        if force_noise_scale > 0.0 and hand_in_contact.any():
-            self.rb_forces *= torch.pow(self.force_decay, self.dt / self.force_decay_interval)
+        force_noise_scale = self.get_or_apply_param_schedule(self.force_scale)
 
-            # apply new forces
-            # force_indices = (torch.rand(self.num_envs, device=self.device) < self.random_force_prob).nonzero()
-            # sample env ids from hand_in_contact boolean tensor
-            force_indices = hand_in_contact.nonzero(as_tuple=False)
-            force_indices = force_indices[torch.rand(len(force_indices), device=self.device) < self.random_force_prob]
-            self.rb_forces[force_indices, self.object_rb_handles, :] = (
-                torch.randn_like(
-                    self.rb_forces[force_indices, self.object_rb_handles, :],
-                    device=self.device,
+        if force_noise_scale > 0.0:
+            hand_in_contact = self.get_hand_in_contact()
+            if hand_in_contact.any():
+                self.rb_forces *= torch.pow(self.force_decay, self.dt / self.force_decay_interval)
+
+                # apply new forces
+                # force_indices = (torch.rand(self.num_envs, device=self.device) < self.random_force_prob).nonzero()
+                # sample env ids from hand_in_contact boolean tensor
+                force_indices = hand_in_contact.nonzero(as_tuple=False)
+                force_indices = force_indices[torch.rand(len(force_indices), device=self.device) < self.random_force_prob]
+                self.rb_forces[force_indices, self.object_rb_handles, :] = (
+                    torch.randn_like(
+                        self.rb_forces[force_indices, self.object_rb_handles, :],
+                        device=self.device,
+                    )
+                    * self.object_rb_masses.unsqueeze(-1).unsqueeze(0)
+                    * force_noise_scale
                 )
-                * self.object_rb_masses.unsqueeze(-1).unsqueeze(0)
-                * force_noise_scale
-            )
 
-            self.gym.apply_rigid_body_force_tensors(
-                self.sim,
-                gymtorch.unwrap_tensor(self.rb_forces),
-                None,
-                gymapi.LOCAL_SPACE,
-            )
+                self.gym.apply_rigid_body_force_tensors(
+                    self.sim,
+                    gymtorch.unwrap_tensor(self.rb_forces),
+                    None,
+                    gymapi.LOCAL_SPACE,
+                )
 
     def assign_act(self, actions):
         if self.debug_zero_actions:
@@ -1167,8 +1181,9 @@ class ArticulateTask(VecTask, IsaacGymCameraBase):
                 )
                 self.actions = actions
         if self.use_relative_control:
+            shadow_hand_dof_speed_scale = self.get_or_apply_param_schedule(self.shadow_hand_dof_speed_scale)
             targets = (
-                self.prev_targets[:, self.actuated_dof_indices] + self.shadow_hand_dof_speed_scale * self.dt * actions
+                self.prev_targets[:, self.actuated_dof_indices] + shadow_hand_dof_speed_scale * self.dt * actions
             )
             self.cur_targets[:, self.actuated_dof_indices] = tensor_clamp(
                 targets,
@@ -1190,6 +1205,16 @@ class ArticulateTask(VecTask, IsaacGymCameraBase):
                 self.cur_targets[:, self.actuated_dof_indices],
                 self.shadow_hand_dof_lower_limits[self.actuated_dof_indices],
                 self.shadow_hand_dof_upper_limits[self.actuated_dof_indices],
+            )
+
+        if self.limit_hand_rotation:
+            # limit hand rotation by a quarter turn
+            lower = tensor_clamp(self.shadow_hand_dof_default_pos[:, 3:6] - np.pi * 0.25, self.shadow_hand_dof_lower_limits[3:6], self.shadow_hand_dof_upper_limits[3:6])
+            upper = tensor_clamp(self.shadow_hand_dof_default_pos[:, 3:6] + np.pi * 0.25, self.shadow_hand_dof_lower_limits[3:6], self.shadow_hand_dof_upper_limits[3:6])
+            self.cur_targets[:, self.actuated_dof_indices[3:6]] = tensor_clamp(
+                self.cur_targets[:, self.actuated_dof_indices[3:6]],
+                lower,
+                upper
             )
 
         self.prev_targets[:, self.actuated_dof_indices] = self.cur_targets[:, self.actuated_dof_indices]
@@ -1284,8 +1309,9 @@ class ArticulateTask(VecTask, IsaacGymCameraBase):
             self.progress_buf >= self.max_episode_length,
             torch.ones_like(self.reset_buf),
             resets,
-        )
-        if self.max_consecutive_successes > 0:
+        ) 
+        activate_consecutive_successes = self.reach_bonus_schedule != "step" or ((self.last_step // self.reach_bonus_interval) > 0)
+        if self.max_consecutive_successes > 0 and activate_consecutive_successes:
             resets = torch.where(
                 self.successes >= self.max_consecutive_successes,
                 torch.ones_like(resets),
@@ -1416,7 +1442,8 @@ class ArticulateTask(VecTask, IsaacGymCameraBase):
         self.gym.refresh_dof_state_tensor(self.sim)
         self.gym.refresh_actor_root_state_tensor(self.sim)
         self.gym.refresh_rigid_body_state_tensor(self.sim)
-        self.gym.refresh_net_contact_force_tensor(self.sim)
+        if self.force_scale > 0.:
+            self.gym.refresh_net_contact_force_tensor(self.sim)
 
         # if self.obs_type == "full_state" or self.asymmetric_obs:
         #     self.gym.refresh_force_sensor_tensor(self.sim)
@@ -1465,18 +1492,7 @@ class ArticulateTask(VecTask, IsaacGymCameraBase):
             self.object_dof_upper_limits,
         ).view(self.num_envs, -1)
 
-        if isinstance(self.object_target_dof_pos, torch.Tensor):
-            assert len(self.object_target_dof_pos) in [
-                1,
-                self.num_objects,
-            ], "must either provide a single or K target dofs for each object"
-            object_target_dof = (
-                self.object_target_dof_pos.unsqueeze(0)
-                .repeat(self.num_envs // len(self.object_target_dof_pos), 1)
-                .unsqueeze(-1)
-            )
-        else:
-            object_target_dof = self.object_target_dof_pos * torch.ones_like(obs_dict["object_dof_pos"])
+        object_target_dof = self.object_target_dof_pos
 
         obs_dict["goal_dof_pos"] = object_target_dof.view(self.num_envs, -1)
         obs_dict["goal_dof_pos_scaled"] = unscale(
