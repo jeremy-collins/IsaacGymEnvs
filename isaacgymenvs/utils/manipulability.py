@@ -365,7 +365,7 @@ def get_manipulability_fd_parallel_actions(kwargs):
     # print("rigid_body_states", kwargs["rigid_body_states"].shape)
     # print("prev_targets", kwargs["prev_targets"].shape)
 
-    # copying states so we can compute manipulability in parallel
+    # copying states in groups of input_dim*2 so we can compute manipulability in parallel
     actor_root_state_tensor_rows = kwargs["root_state_tensor"].view(bs, 2, 13)[0::(input_dim * 2)] # (num_manips, 2, 13) select every (input_dim*2)-th row
     initial_actor_root_state_tensor_copied_rows = actor_root_state_tensor_rows.repeat_interleave((input_dim * 2), dim=0) # (num_manips*input_dim*2, 2, 13) copy each row input_dim times
     initial_actor_root_state_tensor_copied = initial_actor_root_state_tensor_copied_rows.view(-1, 13) # (num_manips*input_dim*2, 13) reshape to original shape
@@ -374,9 +374,10 @@ def get_manipulability_fd_parallel_actions(kwargs):
     initial_dof_state_tensor_copied_rows = dof_state_tensor_rows.repeat_interleave((input_dim * 2), dim=0) # (num_manips*input_dim, 24, 2) copy each row input_dim times
     initial_dof_state_tensor_copied = initial_dof_state_tensor_copied_rows.view(-1, 2) # (num_manips*input_dim*24, 2) reshape to original shape
 
-    rigid_body_tensor_rows = kwargs["rigid_body_states"].view(bs, 30, 13)[0::(input_dim * 2)] # (num_manips, 30, 13) # select every input_dim-th row
+    rigid_body_tensor_rows = kwargs["rigid_body_states"].view(bs, -1, 13)[0::(input_dim * 2)] # (num_manips, 30, 13) # select every input_dim-th row
     initial_rigid_body_tensor_copied_rows = rigid_body_tensor_rows.repeat_interleave((input_dim * 2), dim=0) # (num_manips*input_dim, 30, 13) copy each row input_dim times
-    initial_rigid_body_tensor_copied = initial_rigid_body_tensor_copied_rows.view(-1, 30, 13) # (num_manips*input_dim, 30, 13) reshape to original shape
+    # initial_rigid_body_tensor_copied = initial_rigid_body_tensor_copied_rows.view(-1, 30, 13) # (num_manips*input_dim, 30, 13) reshape to original shape
+    initial_rigid_body_tensor_copied = initial_rigid_body_tensor_copied_rows.view(num_manips*input_dim*2, -1, 13) # (num_manips*input_dim*2, num_rigid_bodies, 13) reshape to original shape
 
     prev_target_tensor_rows = kwargs["prev_targets"].view(bs, 23)[0::(input_dim * 2)] # (num_manips, 23) # select every input_dim-th row
     initial_prev_target_tensor_copied_rows = prev_target_tensor_rows.repeat_interleave((input_dim * 2), dim=0) # (num_manips*input_dim, 24) copy each row input_dim times

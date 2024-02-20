@@ -38,12 +38,7 @@ env:
   startPositionNoise: 0.01
   startRotationNoise: 0.0
 
-  resetPositionNoise: # 0.01   # x, z dim noise
-    range: [0.0, 0.05]
-    schedule: "linear" 
-    schedule_steps: 300000
-    operation: "additive"  # not needed
-    distribution: "uniform"  # not needed
+  resetPositionNoise: 0.01
   resetRotationNoise: 0.0
   resetDofPosRandomInterval: 0.2
   resetDofVelRandomInterval: 0.0
@@ -76,8 +71,8 @@ env:
   objectDofTargetPos: 
     - 0.075  # 0.05 for spray_bottle
   scaleDofPos: false
-  objectMassBaseOnly: false
-  objectMass: 1
+  objectMassBaseOnly: true
+  objectMass: 10
   objectStiffness: 3
   objectDamping: 0.1
   fixObjectBase: false
@@ -85,13 +80,10 @@ env:
   asymmetric_observations: False
   printNumSuccesses: False
   maxConsecutiveSuccesses: 100
-  useOneHot: True
-
-  # set to True if you use camera sensors in the environment
-  enableCameraSensors: False
-
+  loadGoalAsset: False #True
+  # useOneHot: True
   asset:
-    assetFileName: "urdf/kuka_allegro_description/allegro_grasp.urdf"
+    assetFileName: "urdf/kuka_allegro_description/allegro_6dof_wrist.urdf"
     assetFileNameBlock: "urdf/objects/cube_multicolor_allegro.urdf"
     assetFileNameEgg: "mjcf/open_ai_assets/hand/egg.xml"
     assetFileNamePen: "mjcf/open_ai_assets/hand/pen.xml"
@@ -195,6 +187,9 @@ task:
             distribution: "uniform"
             # schedule: "linear"  # "linear" will scale the current random sample by `min(current num steps, schedule_steps) / schedule_steps`
             # schedule_steps: 30000
+
+  # set to True if you use camera sensors in the environment
+  enableCameraSensors: False
 
 sim:
   dt: 0.01667 # 1/60

@@ -39,9 +39,9 @@ env:
   startPositionNoise: 0.01
   startRotationNoise: 0.0
 
-  resetPositionNoise: 0.01
+  resetPositionNoise: 0.01   # x, z dim noise
   resetRotationNoise: 0.0
-  resetDofPosRandomInterval: 0.
+  resetDofPosRandomInterval: 0.2
   resetDofVelRandomInterval: 0.0
 
   # Random forces applied to the object
@@ -83,6 +83,7 @@ env:
   printNumSuccesses: False
   maxConsecutiveSuccesses: 100
   loadGoalAsset: False #True
+  # useOneHot: True
   
   asset:
     assetFileName: "urdf/kuka_allegro_description/allegro_6dof_wrist.urdf"

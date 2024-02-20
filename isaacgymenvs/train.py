@@ -32,6 +32,7 @@
 import hydra
 
 from omegaconf import DictConfig, OmegaConf
+import multiprocessing
 
 
 def preprocess_train_config(cfg, config_dict):
@@ -256,7 +257,6 @@ def launch_rlg_hydra(cfg: DictConfig):
             "sigma": cfg.sigma if cfg.sigma != "" else None,
         }
     )
-
 
 if __name__ == "__main__":
     launch_rlg_hydra()
