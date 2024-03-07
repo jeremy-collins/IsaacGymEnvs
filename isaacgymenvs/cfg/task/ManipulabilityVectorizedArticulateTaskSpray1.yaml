@@ -200,6 +200,7 @@ sim:
   up_axis: "z"
   use_gpu_pipeline: ${eq:${...pipeline},"gpu"}
   gravity: [0.0, 0.0, -9.81]
+  # gravity: [0.0, 0.0, 0.0]
   physx:
     num_threads: ${....num_threads}
     solver_type: ${....solver_type}

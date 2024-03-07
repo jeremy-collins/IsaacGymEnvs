@@ -155,6 +155,8 @@ class ArticulateTask(VecTask, IsaacGymCameraBase):
         self.object_mass = self.cfg["env"].get("objectMass", 1)  # in KG
         self.object_mass_base_only = self.cfg["env"].get("objectMassBaseOnly", False)
 
+        self.use_dexgraspnet = self.cfg["env"].get("dexGraspNet", False)
+
         if not isinstance(self.object_type, ListConfig):
             self.object_type = [self.object_type]
         assert all(
@@ -496,6 +498,7 @@ class ArticulateTask(VecTask, IsaacGymCameraBase):
         # TODO: add option to load different hand initializations per object
         if os.path.exists(self.hand_init_path) and self.load_default_pos:
             allegro_hand_dof_default_pos = np.load(self.hand_init_path)
+            print("hand pose from np load: ", allegro_hand_dof_default_pos)
             # allegro_hand_default_pos[:6] = 0.
             # allegro_hand_default_pos[2] = -0.3
             assert len(allegro_hand_dof_default_pos) == self.num_shadow_hand_dofs
@@ -666,12 +669,28 @@ class ArticulateTask(VecTask, IsaacGymCameraBase):
 
             goal_start_pose.p.z -= 0.04
 
+            # if self.use_dexgraspnet:
+            #     # print("Setting offset to 0")
+            #     init_pose_offset = gymapi.Vec3(0, 0, 0)
+            #     # init_pose_offset = gymapi.Vec3(-0.0425, -0.0085, 0.1123)
+            #     # init_rotation_offset = gymapi.Quat(1, 0, 0, 0)
+            #     # init_rotation_offset = gymapi.Quat.from_euler_zyx(
+            #     # #         # -3.3633, -0.7054, 2.1650
+            #     # #         2.1650, -0.7054, -3.3633
+            #     #         5., 0., 0.3403
+            #     #     )
+            #     allegro_hand_frame_origin = init_transform = gymapi.Transform()
+            #     init_transform.p = init_pose_offset
+            #     init_transform.r = init_rotation_offset
+
+            # else:
             init_pose_offset = gymapi.Vec3(*get_axis_params(0.25, self.up_axis_idx))
             init_rotation_offset = (
                 gymapi.Quat.from_axis_angle(gymapi.Vec3(0, 1, 0), 1.5 * np.pi)
                 * gymapi.Quat.from_axis_angle(gymapi.Vec3(1, 0, 0), 1.97 * np.pi)
                 * gymapi.Quat.from_axis_angle(gymapi.Vec3(0, 0, 1), 0.25 * np.pi)
             )
+
             allegro_hand_frame_origin = init_transform = gymapi.Transform()
             init_transform.p = init_pose_offset
             init_transform.r = init_rotation_offset
@@ -687,6 +706,18 @@ class ArticulateTask(VecTask, IsaacGymCameraBase):
                 allegro_hand_frame_origin = init_transform
 
             # allegro_hand_dof_start_pos[:6] = 0.0
+            # allegro_hand_dof_start_pos[:6] = torch.tensor(allegro_hand_dof_default_pos, device=self.device)[:6] # TODO: remove this
+
+            # if self.use_dexgraspnet:
+            #     allegro_hand_dof_start_pos[:6] = 0.0
+            #     z_action = torch.zeros((self.num_envs, 22))
+            #     z_action[:, 5] = 0.1
+            #     self.assign_act(z_action)
+            #     print("assigned z action!!!")
+                
+                # allegro_hand_dof_start_pos[:6] = torch.tensor(allegro_hand_dof_default_pos, device=self.device)[:6] # TODO: remove this
+
+
             self.shadow_hand_dof_default_pos.append(allegro_hand_dof_start_pos)
             poses.append((object_start_pose, goal_start_pose, allegro_hand_frame_origin))
 
@@ -750,11 +781,13 @@ class ArticulateTask(VecTask, IsaacGymCameraBase):
             if self.aggregate_mode >= 1:
                 self.gym.begin_aggregate(env_ptr, max_agg_bodies, max_agg_shapes, True)
 
+            print("allegro_hand_frame_origin: ", allegro_hand_frame_origin.p.x, allegro_hand_frame_origin.p.y, allegro_hand_frame_origin.p.z)
+
             # add hand - collision filter = -1 to use asset collision filters set in mjcf loader
             shadow_hand_actor = self.gym.create_actor(
                 env_ptr, allegro_hand_asset, allegro_hand_frame_origin, "hand", i, -1, 0
             )
-            self.hand_start_states.append(
+            self.hand_start_states.append( # not used??
                 [
                     allegro_hand_frame_origin.p.x,
                     allegro_hand_frame_origin.p.y,
@@ -1066,7 +1099,7 @@ class ArticulateTask(VecTask, IsaacGymCameraBase):
         self.prev_targets[env_ids, : self.num_shadow_hand_dofs] = pos
         self.cur_targets[env_ids, : self.num_shadow_hand_dofs] = pos
 
-        hand_indices = self.hand_indices[env_ids].to(torch.int32) # TODO: check this for out of bounds error
+        hand_indices = (self.hand_indices[env_ids]).to(torch.int32)
         
         if self.prev_bufs_manip is None:
             self.gym.set_dof_state_tensor_indexed(
@@ -1083,8 +1116,7 @@ class ArticulateTask(VecTask, IsaacGymCameraBase):
             )
 
         else:
-            dof_state_reshaped = self.dof_state.view(self.num_envs, -1, 2) # (num_envs, 23, 2)
-
+            # dof_state_reshaped = self.dof_state.view(self.num_envs, -1, 2) # (num_envs, 23, 2)
             # # we want to set the first 22 of the 23 dofs
             # reset_dof_indices = torch.arange(22, device=self.device).view(1, -1).repeat(len(env_ids), 1) # (num_envs, 22)
             # self.prev_bufs_manip["prev_dof_state_tensor"][hand_indices] = self.dof_state[hand_indices]
@@ -1635,7 +1667,7 @@ class ArticulateTask(VecTask, IsaacGymCameraBase):
                 "f": manip_step,
                 "actions": self.actions.clone(),
                 "act_moving_average": float(self.act_moving_average),
-                "eps": 1e-2,
+                "eps": 1e-2, # 1e-2,
             }
 
             # for key in manip_args.keys():
@@ -1781,16 +1813,8 @@ class ArticulateTaskCamera(ArticulateTask):
                 self.create_tensors_for_env_cameras(env_ptr, env_camera_handles, camera_spec)
             )
 
-def get_action(t):
-    actions =  torch_utils.unscale(env.shadow_hand_dof_default_pos, #.repeat(2, 1),
-                                env.shadow_hand_dof_lower_limits, env.shadow_hand_dof_upper_limits).numpy()
-    t += 6
-    scale = .5 if t > 250 else .25
-    actions[:, 0] = - (np.sin(t-6/250 * np.pi))
-    return torch.tensor(actions, device=env.device).float()
-
-def optimize_action(action, manipulability, obj_curr, obj_des, max_iters=1000, alpha=1.e0, action_penalty=.01, clip_grad=None):
-    hist_dict = {"costs": [], "action_norms": [], "grad_norms": []}
+def optimize_action(action, manipulability, obj_curr, obj_des, max_iters=1000, alpha=1., action_penalty=.01, clip_grad=None):
+    hist_dict = {"costs": [], "action_norms": [], "grad_norms": [], "obj_dists": []}
     action = action.clone().detach().requires_grad_(True)
     optimizer = torch.optim.Adam([action], lr=alpha)
     for i in range(max_iters):
@@ -1812,7 +1836,7 @@ def optimize_action(action, manipulability, obj_curr, obj_des, max_iters=1000, a
 
         # gradient clipping
         if clip_grad is not None and torch.norm(dC) > clip_grad:
-            print("clipping grad to", clip_grad)
+            # print("clipping grad to", clip_grad)
             dC = dC / torch.norm(dC) * clip_grad
 
         # action = action - alpha * dC
@@ -1820,13 +1844,15 @@ def optimize_action(action, manipulability, obj_curr, obj_des, max_iters=1000, a
         cost.backward()
         optimizer.step()
 
-        # # projected gradient descent
-        # with torch.no_grad():
-        #     action.clamp_(min=-0.1, max=0.1)
+        # projected gradient descent
+        with torch.no_grad():
+            action.clamp_(min=-0.1, max=0.1)
 
+        cost_normalized = cost / torch.norm(obj_des - obj_curr)
         hist_dict["costs"].append(cost.item())
         hist_dict["action_norms"].append(torch.norm(action).item())
         hist_dict["grad_norms"].append(torch.norm(dC).item())
+        hist_dict["obj_dists"].append(torch.norm(obj_next - obj_des).item())
 
         # print("new action", action)
         # print("cost", cost.item())
@@ -1845,40 +1871,94 @@ def optimize_action(action, manipulability, obj_curr, obj_des, max_iters=1000, a
     #     print("normalizing action")
     #     action = action / torch.norm(action) * action_mag
 
+    # analytical_action = torch.linalg.pinv(M) @ (obj_des - obj_curr)
+    # print("analytical action", analytical_action)
+
     print("cost", cost.item())
+    print("cost_normalized", cost_normalized.item())
     print("action norm", torch.norm(action).item())
+    print("action", action)
+    print("M.T @ (obj_curr - obj_des)", M.T @ (obj_curr - obj_des))
     # print("obj dist", torch.norm(obj_curr - obj_des).item())
     # print("M @ action", torch.norm(M @ action).item())
     # print("M mag", torch.norm(M).item())
 
-    # visualizing the training curve
+    # visualizing the optimization
     plot_info(hist_dict)
 
-    return cost.item(), action
+    return cost_normalized.item(), action
+
+
+def optimize_action_cvxpy(action, manipulability, obj_curr, obj_des, max_action=0.1):
+    # minimizing the cost function using cvxpy
+    import cvxpy as cp
+
+    # Set up CVX problem
+    x = cp.Variable(action.shape[0])
+    M = manipulability.T
+    obj_next = obj_curr + M @ x
+    cost = cp.norm(obj_next - obj_des)
+    objective = cp.Minimize(cost)
+    # we also want the first 6 dofs to be 0 and the action to be small (infinity norm <= 0.1)
+    constraints = [x[:6] == 0, cp.norm(x, "inf") <= max_action]
+    # constraints = [cp.norm(x, "inf") <= max_action]
+
+    prob = cp.Problem(objective, constraints)
+    
+    # Solve the problem
+    prob.solve()
+    cost = torch.tensor(prob.value).float()
+    cost_normalized = prob.value / torch.norm(obj_des - obj_curr)
+    action = torch.tensor(x.value).float()
+
+    plot_live_cost_bar((1 - cost_normalized), ax)
+
+    print("cost", cost.item())
+    print("cost_normalized", cost_normalized.item())
+    # print("M.T @ (obj_curr - obj_des)", M.T @ (obj_curr - obj_des))
+    # print("action norm", torch.norm(action).item())
+    # print("action", action)
+
+    # return prob.value, x.value
+    # return torch.tensor(prob.value).float(), torch.tensor(x.value).float()
+    return cost_normalized, action
 
 def plot_info(hist_dict):
     # Update plot data instead of creating new plots
     lines[0].set_data(range(len(hist_dict["costs"])), hist_dict["costs"])
     lines[1].set_data(range(len(hist_dict["action_norms"])), hist_dict["action_norms"])
     lines[2].set_data(range(len(hist_dict["grad_norms"])), hist_dict["grad_norms"])
+    lines[3].set_data(range(len(hist_dict["obj_dists"])), hist_dict["obj_dists"])
 
     # titles
-    axs[0].set_title("Cost")
+    axs[0].set_title("Normalized Cost")
     axs[1].set_title("Action Norm")
     axs[2].set_title("Grad Norm")
+    axs[3].set_title("Obj Dist")
 
     # limits
     axs[0].set_xlim(0, len(hist_dict["costs"]))
     axs[1].set_xlim(0, len(hist_dict["action_norms"]))
     axs[2].set_xlim(0, len(hist_dict["grad_norms"]))
+    axs[3].set_xlim(0, len(hist_dict["obj_dists"]))
     axs[0].set_ylim(0, 1)
     axs[1].set_ylim(0, 1)
     axs[2].set_ylim(0, 1)
+    axs[3].set_ylim(0, 1)
 
     plt.show()
     plt.pause(0.01)
 
+def plot_live_cost_bar(cost, ax):
+    ax.clear()
+    ax.bar(0, cost, color="r")
+    ax.set_ylim(0, 1)
+    ax.set_title(r"$1 - \bar{C}$")
+    plt.show()
+    plt.pause(0.01)
+
 if __name__ == "__main__":
+
     import isaacgymenvs
     from omegaconf import OmegaConf
     from hydra import compose, initialize
@@ -1889,10 +1969,12 @@ if __name__ == "__main__":
 
     import matplotlib.pyplot as plt
     plt.ion()
-    fig, axs = plt.subplots(3, figsize=(10, 10))
+    fig, axs = plt.subplots(4, figsize=(10, 10))
     # Initialize lines for each plot with empty data
-    lines = [ax.plot([], [], label=label, color=color)[0] for ax, label, color in zip(axs, ["Cost", "Action Norm", "Grad Norm"], ["r", "g", "b"])]
+    lines = [ax.plot([], [], label=label, color=color)[0] for ax, label, color in zip(axs, ["Cost", "Action Norm", "Grad Norm", "Obj Dist"], ["r", "g", "b", "k"])]
     
+    cost_fig, ax = plt.subplots(1, figsize=(2, 5))
+
     config_path = "../cfg"
 
     with initialize(config_path=config_path, job_name="test_env"):
@@ -1905,12 +1987,20 @@ if __name__ == "__main__":
                                                    "test=false",
                                                    "task.env.useRelativeControl=true",
                                                    "+env.set_start_pos=true",
-                                                   "+task.env.hand_init_path=allegro_hand_dof_default_pos_spray_3.npy",
+                                                #    "+task.env.hand_init_path=allegro_hand_dof_default_pos_dexgraspnet_batch_13.npy",
+                                                #    "+task.env.hand_init_path=allegro_hand_dof_default_pos_dexgraspnet_batch_13_xyz.npy",
+                                                #    "+task.env.hand_init_path=allegro_hand_dof_default_pos_dexgraspnet_batch_13_zyx.npy",
+                                                #    "+task.env.hand_init_path=allegro_hand_dof_default_pos_dexgraspnet_batch_13_no_transform.npy",
+                                                #    "+task.env.hand_init_path=allegro_hand_dof_default_pos.npy",
+                                                #    "+task.env.hand_init_path=allegro_hand_dof_default_pos_zeros.npy",
+                                                   "+task.env.hand_init_path=allegro_hand_dof_default_pos_spray_6.npy",
                                                 #    "+task.env.hand_init_path=allegro_hand_dof_default_pos_scissors_closer.npy",
                                                    "task.env.resetDofPosRandomInterval=0.",
                                                 #    "task.env.load_default_pos=true",
                                                 #    "checkpoint=./runs/full_state_spray/nn/full_state_spray.pth",
-                                                   "num_envs=44"
+                                                   "num_envs=44",
+                                                    "+task.env.dexGraspNet=false",
+                                                    # "-m"
                                                    ])
 
     env = isaacgymenvs.make(cfg.seed, cfg.task, cfg.num_envs, cfg.sim_device,
@@ -1923,10 +2013,8 @@ if __name__ == "__main__":
     import pickle
     transform = env.gym.get_viewer_camera_transform(env.viewer, env.envs[0])
     pos = transform.p
-    print("position", pos.x, pos.y, pos.z)
 
     rot = transform.r
-    print("rotation", rot.x, rot.y, rot.z, rot.w)
     pickle.dump(transform, open('allegro_viewer.pkl', 'wb'))
     transform = pickle.load(open('allegro_viewer.pkl', 'rb'))
     cam_pos = gymapi.Vec3()
@@ -1938,31 +2026,41 @@ if __name__ == "__main__":
     cam_target.y = 0.4
     env.gym.viewer_camera_look_at(env.viewer, None, cam_pos, cam_target)
     
-    print(env.shadow_hand_dof_pos[0])
+    print("initial hand dofs pos: ", env.shadow_hand_dof_pos[0])
     print("env.num_envs", env.num_envs)
     # actions = torch.zeros(100000, env.num_envs, 22)
     # actions = torch.sin(torch.arange(0, 1000) / 10).unsqueeze(1).repeat(1, 22).unsqueeze(1).repeat(1, env.num_envs, 1)
     initial_action = torch.zeros(env.num_envs, 22)
 
+    # TODO: implement function to change the pose to match dexgraspnet by applying actions
+
     obs, r, done, info = env.step(initial_action)
+    print("initial hand dofs pos after acaction: ", env.shadow_hand_dof_pos[0])
 
     t = 0
     hand_vels, palm_pos = [], []
     dof_pos = []
 
     while True:
-    # while t < 500:
-        # t += 1
-    # for action in actions:
         initial_action = torch.zeros(22)
-        # initial_action = torch.randn(env.num_envs, 22) * 0.1
-        # action = optimize_action(initial_action[0], env.current_obs_dict["manipulability"], env.current_obs_dict["object_pose"][0], env.current_obs_dict["goal_pose"][0])
-        cost, action = optimize_action(initial_action, env.current_obs_dict["manipulability"], env.current_obs_dict["manip_obs"][0], env.current_obs_dict["manip_goal"][0], clip_grad=0.1)
-        # print("optimized action", action)
+        # cost, action = optimize_action(action=initial_action,
+        #                                manipulability=env.current_obs_dict["manipulability"],
+        #                                obj_curr=env.current_obs_dict["manip_obs"][0],
+        #                                obj_des=env.current_obs_dict["manip_goal"][0],
+        #                                alpha=1.e-0,
+        #                                action_penalty=0.,
+        #                                clip_grad=0.1)
+        
+        cost, action = optimize_action_cvxpy(action=initial_action,
+                                        manipulability=env.current_obs_dict["manipulability"],
+                                        obj_curr=env.current_obs_dict["manip_obs"][0],
+                                        obj_des=env.current_obs_dict["manip_goal"][0])
+        
         # adding noise to the optimal action
         # action += torch.randn_like(action) * 0.01
-        # action[:6] = 0 # zeroing out first 6 dofs to keep the wrist still
+        
         action = action.unsqueeze(0).repeat(env.num_envs, 1)
+        
         obs, r, done, info = env.step(action)
         # obs, r, done, info = env.step(torch.zeros_like(action))
 
@@ -1972,6 +2070,7 @@ if __name__ == "__main__":
         # print("manipulability", env.current_obs_dict["manipulability"])
         # print("manip max", env.current_obs_dict["manipulability"].max())
         # print("manip min", env.current_obs_dict["manipulability"].min())
+        print("manip norm", torch.norm(env.current_obs_dict["manipulability"]))
         # print("hand dofs pos: ", env.shadow_hand_dof_pos[0])
         # print("error from goal: ", env.current_obs_dict["manip_obs"][0] - env.current_obs_dict["manip_goal"][0])
         # print("lower:", env.shadow_hand_dof_lower_limits)

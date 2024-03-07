@@ -702,7 +702,7 @@ class ArticulateMinTask(VecTask, IsaacGymCameraBase):
         self.shadow_hand_dof_default_pos = torch.stack(tuple(self.shadow_hand_dof_default_pos), dim=0).repeat(
             (self.num_envs // len(self.object_assets), 1)
         )
-        # self.shadow_hand_dof_default_pos[:, :6] = 0s
+        # self.shadow_hand_dof_default_pos[:, :6] = 0
         self.shadow_hands = []
         self.object_actor_handles = []
         self.object_rb_masses = []

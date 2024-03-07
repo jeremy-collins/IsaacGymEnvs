@@ -347,8 +347,9 @@ def get_manipulability_fd_parallel_actions(kwargs):
     #     "prev_actor_root_state_tensor": kwargs["root_state_tensor"].clone(),
     #     "prev_dof_state_tensor": kwargs["dof_state_tensor"].clone(),
     #     "prev_rigid_body_tensor": kwargs["rigid_body_states"].clone(),
+    #     "prev_targets": kwargs["prev_targets"].clone()
     # }
-
+    
     obs = obs_dict_to_tensor(kwargs["obs_dict"], kwargs["obs_keys_manip"], kwargs["num_envs"], kwargs["device"])
     bs = kwargs["actions"].shape[0]
     input_dim = kwargs["actions"].shape[1]
@@ -383,7 +384,7 @@ def get_manipulability_fd_parallel_actions(kwargs):
     initial_prev_target_tensor_copied_rows = prev_target_tensor_rows.repeat_interleave((input_dim * 2), dim=0) # (num_manips*input_dim, 24) copy each row input_dim times
     initial_prev_target_tensor_copied = initial_prev_target_tensor_copied_rows.view(-1, 23) # (num_manips*input_dim, 23) reshape to original shape
 
-    # eye with adjacent rows having opposite signs ([1, 0, 0], [-1, 0, 0], [0, 1, 0], [0, -1, 0], ...)
+    # identity matrix with adjacent rows having opposite signs ([1, 0, 0], [-1, 0, 0], [0, 1, 0], [0, -1, 0], ...)
     eps_parallel = torch.eye(input_dim, device=kwargs["device"]).repeat(num_manips, 1).repeat_interleave(2, dim=0) * kwargs["eps"]  # (num_manips*input_dim*2, input_dim)
     eps_parallel[1::2] *= -1 # alternate rows have opposite signs
 
@@ -406,12 +407,10 @@ def get_manipulability_fd_parallel_actions(kwargs):
         "prev_targets": initial_prev_target_tensor_copied.clone()
     }
 
-    # prev_bufs_manip = {
-    #     "prev_actor_root_state_tensor": kwargs["root_state_tensor"].clone(),
-    #     "prev_dof_state_tensor": kwargs["dof_state_tensor"].clone(),
-    #     "prev_rigid_body_tensor": kwargs["rigid_body_states"].clone(),
-    #     "prev_targets": kwargs["prev_targets"].clone()
-    # }
+    # refresh the state tensors
+    # kwargs["gym"].refresh_dof_state_tensor(kwargs["sim"])
+    # kwargs["gym"].refresh_actor_root_state_tensor(kwargs["sim"])
+    # kwargs["gym"].refresh_rigid_body_state_tensor(kwargs["sim"])
 
     return manipulability_fd, prev_bufs_manip
 
