@@ -5,10 +5,20 @@ from isaacgym.torch_utils import *
 from isaacgymenvs.utils.utils import obs_dict_to_tensor
 import torch
 
+SUPPORTED_PARTNET_OBJECTS = [
+    "dispenser",
+    "spray_bottle",
+    "pill_bottle",
+    "bottle",
+    "stapler",
+    "scissors",
+    "pliers",
+]
+
 def manip_step(
         kwargs : Dict[str, Any],
     ) -> Tuple[Dict[str, torch.Tensor], torch.Tensor, torch.Tensor, Dict[str, Any]]:
-        """Unrolled step function for debugging manipulability function.
+        """dynamics function for manipulability calculation
 
         Args:
             # actions: actions to apply
@@ -236,6 +246,8 @@ def manip_step(
         obs_dict["object_instance_one_hot"] = object_instance_one_hot.to(kwargs["device"])
         obs_dict["object_type_one_hot"] = object_type_one_hot.to(kwargs["device"])
 
+        obs_dict["manip_obs"] = obs_dict_to_tensor(kwargs["obs_dict"], kwargs["obs_keys_manip"], kwargs["num_envs"], kwargs["device"])
+        obs_dict["manip_goal"] = obs_dict_to_tensor(kwargs["obs_dict"], kwargs["goal_keys_manip"], kwargs["num_envs"], kwargs["device"])
 
         kwargs["current_obs_dict"] = obs_dict
         # for key in self.obs_keys:
@@ -291,6 +303,12 @@ def manip_reset(gym, sim, prev_actor_root_state_tensor, prev_dof_state_tensor, p
         gymtorch.unwrap_tensor(prev_targets),
     )
     # print("set_dof_position_target_tensor in manip_reset with result", result)
+
+def manip_refresh(gym, sim):
+    gym.refresh_actor_root_state_tensor(sim)
+    gym.refresh_dof_state_tensor(sim)
+    gym.refresh_rigid_body_state_tensor(sim)
+    gym.refresh_net_contact_force_tensor(sim)
 
 def get_manipulability_fd(kwargs):
         ''' Compute the finite difference jacobian to compute manipulability
@@ -414,7 +432,6 @@ def get_manipulability_fd_parallel_actions(kwargs):
 
     return manipulability_fd, prev_bufs_manip
 
-# def get_manipulability_fd_rand_vec(f, obs_dict, obs_keys, action, eps=1e-2):
 def get_manipulability_fd_rand_vec(kwargs):
     '''
     Calculates finite difference manipulability by randomly perturbing actions separately across parallel environments.

@@ -1,0 +1,14 @@
+manipulability_neg_cost_two_step_vectorized:
+  reward_fn_partial: 
+    _partial_: true
+    _target_: isaacgymenvs.utils.rewards.manipulability_neg_cost_two_step_vectorized
+  args:
+    - actions
+    - manipulability
+    - future_manipulability
+    - manip_obs
+    - manip_goal
+    - future_manip_obs
+    - future_manip_goal
+                                                
+  scale: 1

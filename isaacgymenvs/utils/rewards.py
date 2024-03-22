@@ -2,6 +2,9 @@ from isaacgym.torch_utils import quat_conjugate, quat_mul
 import torch
 from hydra.utils import instantiate
 from omegaconf import DictConfig
+import cvxpy as cp
+import numpy as np
+from isaacgymenvs.utils.manipulability import *
 
 action_penalty = lambda act: torch.linalg.norm(act, dim=-1)
 l2_dist = lambda x, y: torch.linalg.norm(x - y, dim=-1)
@@ -142,6 +145,157 @@ def manipulability_l2_norm_rand_vec(manipulability):
     # taking the l2 norm of each row of the manipulability matrix
     return torch.linalg.norm(manipulability, ord=2, dim=-1)
 
+
+def manipulability_neg_cost(action, manipulability, obj_curr, obj_des, max_action=0.1):
+    # minimizing the cost function using cvxpy
+    initial_action = torch.zeros_like(action)
+
+    # Set up CVX problem
+    x = cp.Variable(initial_action.shape[0])
+    M = manipulability.T
+    obj_next = obj_curr + M @ x
+    cost = cp.norm(obj_next - obj_des)
+    objective = cp.Minimize(cost)
+
+    # we also want the first 6 dofs to be 0 and the action to be small (infinity norm <= max_action)
+    # constraints = [x[:6] == 0, cp.norm(x, "inf") <= max_action]
+    constraints = [cp.norm(x, "inf") <= max_action]
+
+    prob = cp.Problem(objective, constraints)
+    prob.solve()
+
+    cost = torch.tensor(prob.value).float()
+    # cost_normalized = prob.value / (torch.norm(obj_des - obj_curr) + 1e-6)
+    # action = torch.tensor(x.value).float()
+
+    return -cost
+
+
+def manipulability_neg_cost_vectorized(actions, manipulability, obj_curr, obj_des, max_action=0.1):
+    # minimizing the cost function using cvxpy
+    initial_actions = torch.zeros_like(actions[0])
+    input_dim = actions.shape[-1]
+    output_dim = manipulability.shape[-1]
+
+    # (num_manips*input_dim, output_dim) -> (num_manips, output_dim, input_dim)
+    manipulability_grouped = manipulability.reshape(-1, input_dim, output_dim).transpose(1, 2)
+
+    # taking every (input_dim*2)th row of obj_curr and obj_des since they are grouped by manipulability and should be the same
+    obj_curr_grouped = obj_curr[::input_dim * 2]
+    obj_des_grouped = obj_des[::input_dim * 2]
+
+    costs = []
+    for i in range(manipulability_grouped.shape[0]):
+        # Set up CVX problem
+        x = cp.Variable(initial_actions.shape[0])
+        M = manipulability_grouped[i].detach().cpu().numpy()
+        obj_curr = obj_curr_grouped[i].detach().cpu().numpy()
+        obj_des = obj_des_grouped[i].detach().cpu().numpy()
+        obj_next = obj_curr + M @ x
+        cost = cp.norm(obj_next - obj_des)
+        objective = cp.Minimize(cost)
+
+        # we also want the first 6 dofs to be 0 and the action to be small (infinity norm <= max_action)
+        constraints = [x[:6] == 0, cp.norm(x, "inf") <= max_action]
+
+        prob = cp.Problem(objective, constraints)
+        prob.solve()
+        cost = torch.tensor(prob.value).float()
+        costs.append(cost)
+
+    costs = torch.stack(costs, dim=0)
+    rewards = -costs.repeat_interleave(input_dim * 2).to(actions.device)
+    # costs_normalized = costs / (np.linalg.norm(obj_des - obj_curr, axis=-1) + 1e-6)
+    # rewards = -costs_normalized.repeat_interleave(input_dim * 2).to(actions.device)
+
+    return rewards
+
+def manipulability_neg_cost_two_step_vectorized(actions, manip_initial, manip_final, manip_obs, manip_goal,
+                                                future_manip_obs, future_manip_goal, max_action=0.1):
+    # minimizing the cost function using cvxpy
+    input_dim = actions.shape[-1]
+    output_dim = manip_initial.shape[-1]
+
+    # (num_manips*input_dim, output_dim) -> (num_manips, output_dim, input_dim)
+    manip_grouped_initial = manip_initial.reshape(-1, input_dim, output_dim).transpose(1, 2)
+
+    # taking every (input_dim*2)th row of obj_curr, obj_des, and action_initial since they are grouped by manipulability and should be the same
+    obj_curr_grouped_initial = manip_obs[::input_dim * 2]
+    obj_des_grouped_initial = manip_goal[::input_dim * 2]
+
+    # action_initial = actions[::input_dim * 2].repeat_interleave(input_dim * 2, dim=0) # repeat the first action for each manipulability
+    action_initial = actions
+
+    costs_initial = []
+    for i in range(manip_grouped_initial.shape[0]):
+        # Set up CVX problem
+        x = cp.Variable(action_initial.shape[1])
+        M = manip_grouped_initial[i].detach().cpu().numpy()
+        obj_curr_initial = obj_curr_grouped_initial[i].detach().cpu().numpy()
+        obj_des_initial = obj_des_grouped_initial[i].detach().cpu().numpy()
+        obj_next_inital = obj_curr_initial + M @ x
+        cost_initial = cp.norm(obj_next_inital - obj_des_initial)
+        objective = cp.Minimize(cost_initial)
+
+        # we also want the first 6 dofs to be 0 and the action to be small (infinity norm <= max_action)
+        # constraints = [x[:6] == 0, cp.norm(x, "inf") <= max_action]
+        constraints = [cp.norm(x, "inf") <= max_action]
+
+        prob = cp.Problem(objective, constraints)
+        prob.solve()
+        cost_initial = torch.tensor(prob.value).float()
+        costs_initial.append(cost_initial)
+
+    manip_grouped_final = manip_final.reshape(-1, input_dim, output_dim).transpose(1, 2)
+    obj_curr_grouped_final = future_manip_obs[::input_dim * 2]
+    obj_des_grouped_final = future_manip_goal[::input_dim * 2]
+
+    # printing all the shapes
+    print('manip_grouped_final', manip_grouped_final.shape)
+    print('obj_curr_grouped_final', obj_curr_grouped_final.shape)
+    print('obj_des_grouped_final', obj_des_grouped_final.shape)
+
+    costs_final = []
+    for i in range(manip_grouped_final.shape[0]):
+        # Set up CVX problem
+        x = cp.Variable(action_initial.shape[1])
+        M = manip_grouped_final[i].detach().cpu().numpy()
+        obj_curr_final = obj_curr_grouped_final[i].detach().cpu().numpy()
+        obj_des_final = obj_des_grouped_final[i].detach().cpu().numpy()
+        obj_next_final = obj_curr_final + M @ x
+        cost_final = cp.norm(obj_next_final - obj_des_final)
+        objective = cp.Minimize(cost_final)
+
+        # printing all the shapes
+        print('x', x.shape)
+        print('M', M.shape)
+        print('obj_curr_final', obj_curr_final.shape)
+        print('obj_des_final', obj_des_final.shape)
+        print('obj_next_final', obj_next_final.shape)
+
+        # we also want the first 6 dofs to be 0 and the action to be small (infinity norm <= max_action)
+        # constraints = [x[:6] == 0, cp.norm(x, "inf") <= max_action]
+        constraints = [cp.norm(x, "inf") <= max_action]
+
+        prob = cp.Problem(objective, constraints)
+        prob.solve()
+        cost_final = torch.tensor(prob.value).float()
+        costs_final.append(cost_final)
+
+    costs_initial = torch.stack(costs_initial, dim=0)
+    costs_final = torch.stack(costs_final, dim=0)
+
+    print('costs_initial', costs_initial.shape)
+    print('costs_final', costs_final.shape)
+    costs_total = costs_initial + costs_final
+
+    rewards = -costs_total.repeat_interleave(input_dim * 2).to(actions.device)
+    print('rewards', rewards.shape)
+    # costs_normalized = costs / (np.linalg.norm(obj_des - obj_curr, axis=-1) + 1e-6)
+    # rewards = -costs_normalized.repeat_interleave(input_dim * 2).to(actions.device)
+    # manip_reset(env.gym, env.sim, **env.prev_bufs_manip) # setting to initial state
+
+    return rewards
 
 def tipped_penalty(object_rot, goal_rot, fall_dist: float = 0.24):
     object_pose_err = rot_dist(object_rot, goal_rot).view(-1, 1)

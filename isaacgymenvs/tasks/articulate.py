@@ -669,27 +669,28 @@ class ArticulateTask(VecTask, IsaacGymCameraBase):
 
             goal_start_pose.p.z -= 0.04
 
-            # if self.use_dexgraspnet:
-            #     # print("Setting offset to 0")
-            #     init_pose_offset = gymapi.Vec3(0, 0, 0)
-            #     # init_pose_offset = gymapi.Vec3(-0.0425, -0.0085, 0.1123)
-            #     # init_rotation_offset = gymapi.Quat(1, 0, 0, 0)
-            #     # init_rotation_offset = gymapi.Quat.from_euler_zyx(
-            #     # #         # -3.3633, -0.7054, 2.1650
-            #     # #         2.1650, -0.7054, -3.3633
-            #     #         5., 0., 0.3403
-            #     #     )
-            #     allegro_hand_frame_origin = init_transform = gymapi.Transform()
-            #     init_transform.p = init_pose_offset
-            #     init_transform.r = init_rotation_offset
+            if self.use_dexgraspnet:
+                # print("Setting offset to 0")
+                init_pose_offset = gymapi.Vec3(0, 0, 0)
+                # init_pose_offset = gymapi.Vec3(-0.0425, -0.0085, 0.1123)
+                init_rotation_offset = gymapi.Quat(0, 0, 0, 1)
+                # init_rotation_offset = gymapi.Quat.from_euler_zyx(
+                        # -3.3633, -0.7054, 2.1650
+                        # 2.1650, -0.7054, -3.3633
+                        # 5., 0., 0.3403
+                        # 0., 0., 0.
+                    # )
+                allegro_hand_frame_origin = init_transform = gymapi.Transform()
+                init_transform.p = init_pose_offset
+                init_transform.r = init_rotation_offset
 
-            # else:
-            init_pose_offset = gymapi.Vec3(*get_axis_params(0.25, self.up_axis_idx))
-            init_rotation_offset = (
-                gymapi.Quat.from_axis_angle(gymapi.Vec3(0, 1, 0), 1.5 * np.pi)
-                * gymapi.Quat.from_axis_angle(gymapi.Vec3(1, 0, 0), 1.97 * np.pi)
-                * gymapi.Quat.from_axis_angle(gymapi.Vec3(0, 0, 1), 0.25 * np.pi)
-            )
+            else:
+                init_pose_offset = gymapi.Vec3(*get_axis_params(0.25, self.up_axis_idx))
+                init_rotation_offset = (
+                    gymapi.Quat.from_axis_angle(gymapi.Vec3(0, 1, 0), 1.5 * np.pi)
+                    * gymapi.Quat.from_axis_angle(gymapi.Vec3(1, 0, 0), 1.97 * np.pi)
+                    * gymapi.Quat.from_axis_angle(gymapi.Vec3(0, 0, 1), 0.25 * np.pi)
+                )
 
             allegro_hand_frame_origin = init_transform = gymapi.Transform()
             init_transform.p = init_pose_offset
@@ -780,8 +781,6 @@ class ArticulateTask(VecTask, IsaacGymCameraBase):
 
             if self.aggregate_mode >= 1:
                 self.gym.begin_aggregate(env_ptr, max_agg_bodies, max_agg_shapes, True)
-
-            print("allegro_hand_frame_origin: ", allegro_hand_frame_origin.p.x, allegro_hand_frame_origin.p.y, allegro_hand_frame_origin.p.z)
 
             # add hand - collision filter = -1 to use asset collision filters set in mjcf loader
             shadow_hand_actor = self.gym.create_actor(
@@ -1608,67 +1607,12 @@ class ArticulateTask(VecTask, IsaacGymCameraBase):
 
         obs_dict["manip_obs"] = obs_dict_to_tensor(obs_dict, self.obs_keys_manip, self.num_envs, self.device)
         obs_dict["manip_goal"] = obs_dict_to_tensor(obs_dict, self.goal_keys_manip, self.num_envs, self.device)
+        self.manip_obs_dict = obs_dict
 
         # checking for the word "manipulability" in the reward_params keys
         if any(["manipulability" in key for key in self.reward_params.keys()]):
             # creating copies of every variable manipulability interacts with
-            manip_args = {
-                "gym": self.gym,
-                "sim": self.sim,
-                "device": str(self.device),
-                "clip_actions": float(self.clip_actions),
-                "num_envs": int(self.num_envs),
-                "shadow_hand_dof_pos": self.shadow_hand_dof_pos.clone().to(self.device),
-                "shadow_hand_dof_vel": self.shadow_hand_dof_vel.clone().to(self.device),
-                "shadow_hand_dof_lower_limits": self.shadow_hand_dof_lower_limits.clone().to(self.device),
-                "shadow_hand_dof_upper_limits": self.shadow_hand_dof_upper_limits.clone().to(self.device),
-                "shadow_hand_dof_speed_scale": float(self.shadow_hand_dof_speed_scale),
-                "object_indices": self.object_indices.clone().to(self.device),
-                "hand_indices": self.hand_indices.clone().to(self.device),
-                "palm_index": int(self.palm_index),
-                "fingertip_indices": self.fingertip_indices.clone().to(self.device),
-                "root_state_tensor": self.root_state_tensor.clone().to(self.device),
-                "dof_state_tensor": self.dof_state.clone().to(self.device),
-                "rigid_body_states": self.rigid_body_states.clone().to(self.device),
-                "object_dof_pos": self.object_dof_pos.clone().to(self.device),
-                "object_dof_lower_limits": self.object_dof_lower_limits.clone().to(self.device),
-                "object_dof_upper_limits": self.object_dof_upper_limits.clone().to(self.device),
-                "object_target_dof_pos": self.object_target_dof_pos.clone().to(self.device),
-                "scale_dof_pos": bool(self.scale_dof_pos),
-                "object_target_dof_idx": list(self.object_target_dof_idx),
-                "vel_obs_scale": float(self.vel_obs_scale),
-                "num_objects": int(self.num_objects),
-                # "env_num_bodies": int(self.env_num_bodies),
-                "env_num_bodies": self.env_num_bodies.clone().to(self.device) if torch.is_tensor(self.env_num_bodies) else int(self.env_num_bodies),
-                "goal_states": self.goal_states.clone().to(self.device),
-                "hand_init_pos": self.hand_init_pos.clone().to(self.device),
-                "hand_init_quat": self.hand_init_quat.clone().to(self.device),
-                "actuated_dof_indices": self.actuated_dof_indices.clone().to(self.device),
-                "prev_targets": self.prev_targets.clone().to(self.device),
-                "obs_keys": list(self.obs_keys),
-                "obs_dict": dict(obs_dict),
-                "obs_buf": self.obs_buf.clone().to(self.device),
-                "current_obs_dict": dict(obs_dict),
-                "max_obj_instances": int(self.max_obj_instances),
-                "object_type": list(self.object_type),
-                "env_instance_order": list(self.env_instance_order),
-                "SUPPORTED_PARTNET_OBJECTS": list(SUPPORTED_PARTNET_OBJECTS),
-                "use_relative_control": bool(self.use_relative_control),
-                "actuated_dof_indices": self.actuated_dof_indices.clone().to(self.device),
-                "dt": float(self.dt),
-                "cur_targets": self.cur_targets.clone().to(self.device),
-                "object_instance": dict(self.object_instance),
-                "asset_files_dict": dict(self.asset_files_dict),
-                "num_obs_dict": dict(self.num_obs_dict),
-                "obs_type": str(self.obs_type),
-                "obs_keys_manip": self.obs_keys_manip,
-                # "manip_obs": obs_dict["manip_obs"].clone().to(self.device),
-                # "manip_goal": obs_dict["manip_goal"].clone().to(self.device),
-                "f": manip_step,
-                "actions": self.actions.clone(),
-                "act_moving_average": float(self.act_moving_average),
-                "eps": 1e-2, # 1e-2,
-            }
+            manip_args = self.get_manip_args()
 
             # for key in manip_args.keys():
             #     print(key, type(manip_args[key]))
@@ -1676,9 +1620,16 @@ class ArticulateTask(VecTask, IsaacGymCameraBase):
             if "manipulability_reward" in self.reward_params.keys():
                 obs_dict["manipulability"], self.prev_bufs_manip = get_manipulability_fd(manip_args)
                 # obs_dict["manipulability"], _ = get_manipulability_fd(manip_args)
-            elif "manipulability_reward_vectorized" in self.reward_params.keys():
+            elif "manipulability_reward_vectorized" in self.reward_params.keys()\
+                or "manipulability_neg_cost_vectorized" in self.reward_params.keys():
                 obs_dict["manipulability"], self.prev_bufs_manip = get_manipulability_fd_parallel_actions(manip_args)
                 # obs_dict["manipulability"], _ = get_manipulability_fd_parallel_actions(manip_args)
+            elif "manipulability_neg_cost_two_step_vectorized" in self.reward_params.keys():
+                obs_dict["manipulability"], self.prev_bufs_manip = get_manipulability_fd_parallel_actions(manip_args)
+                next_action = self.actions.clone() # TODO: replace action
+                obs_dict["future_manipulability"], future_obs_dict, _ = self.get_manipulability_fd_future(manip_args, next_action)
+                obs_dict["future_manip_obs"] = obs_dict_to_tensor(future_obs_dict, self.obs_keys_manip, self.num_envs, self.device)
+                obs_dict["future_manip_goal"] = obs_dict_to_tensor(future_obs_dict, self.goal_keys_manip, self.num_envs, self.device)
             elif "manipulability_reward_vec" in self.reward_params.keys():
                 obs_dict["manipulability"], self.prev_bufs_manip = get_manipulability_fd_rand_vec(manip_args)
                 # obs_dict["manipulability"], _ = get_manipulability_fd_rand_vec(manip_args)
@@ -1695,6 +1646,7 @@ class ArticulateTask(VecTask, IsaacGymCameraBase):
             # assert torch.allclose(
             #     self.prev_bufs_manip["prev_rigid_body_tensor"], manip_args["rigid_body_states"]
             # ), "rigid_body_states is wrong!"
+
         self.current_obs_dict = obs_dict
         if not self.use_dict_obs:
             # for key in self.obs_keys:
@@ -1732,6 +1684,121 @@ class ArticulateTask(VecTask, IsaacGymCameraBase):
                 "camera_pose": camera_spec.get("camera_pose", [[0.0, -0.35, 0.2], [0.0, 0.0, 0.85090352, 0.52532199]]),
             }
             self.camera_spec_dict[k] = OmegaConf.create(camera_config)
+    
+    def get_manip_args(self):
+        manip_args = {
+                "gym": self.gym,
+                "sim": self.sim,
+                "device": str(self.device),
+                "clip_actions": float(self.clip_actions),
+                "num_envs": int(self.num_envs),
+                "shadow_hand_dof_pos": self.shadow_hand_dof_pos.clone().to(self.device),
+                "shadow_hand_dof_vel": self.shadow_hand_dof_vel.clone().to(self.device),
+                "shadow_hand_dof_lower_limits": self.shadow_hand_dof_lower_limits.clone().to(self.device),
+                "shadow_hand_dof_upper_limits": self.shadow_hand_dof_upper_limits.clone().to(self.device),
+                "shadow_hand_dof_speed_scale": float(self.shadow_hand_dof_speed_scale),
+                "object_indices": self.object_indices.clone().to(self.device),
+                "hand_indices": self.hand_indices.clone().to(self.device),
+                "palm_index": int(self.palm_index),
+                "fingertip_indices": self.fingertip_indices.clone().to(self.device),
+                "root_state_tensor": self.root_state_tensor.clone().to(self.device),
+                "dof_state_tensor": self.dof_state.clone().to(self.device),
+                "rigid_body_states": self.rigid_body_states.clone().to(self.device),
+                "object_dof_pos": self.object_dof_pos.clone().to(self.device),
+                "object_dof_lower_limits": self.object_dof_lower_limits.clone().to(self.device),
+                "object_dof_upper_limits": self.object_dof_upper_limits.clone().to(self.device),
+                "object_target_dof_pos": self.object_target_dof_pos.clone().to(self.device),
+                "scale_dof_pos": bool(self.scale_dof_pos),
+                "object_target_dof_idx": list(self.object_target_dof_idx),
+                "vel_obs_scale": float(self.vel_obs_scale),
+                "num_objects": int(self.num_objects),
+                # "env_num_bodies": int(self.env_num_bodies),
+                "env_num_bodies": self.env_num_bodies.clone().to(self.device) if torch.is_tensor(self.env_num_bodies) else int(self.env_num_bodies),
+                "goal_states": self.goal_states.clone().to(self.device),
+                "hand_init_pos": self.hand_init_pos.clone().to(self.device),
+                "hand_init_quat": self.hand_init_quat.clone().to(self.device),
+                "actuated_dof_indices": self.actuated_dof_indices.clone().to(self.device),
+                "prev_targets": self.prev_targets.clone().to(self.device),
+                "obs_keys": list(self.obs_keys),
+                "obs_dict": dict(self.manip_obs_dict),
+                "current_obs_dict": dict(self.manip_obs_dict),
+                "obs_buf": self.obs_buf.clone().to(self.device),
+                "max_obj_instances": int(self.max_obj_instances),
+                "object_type": list(self.object_type),
+                "env_instance_order": list(self.env_instance_order),
+                "SUPPORTED_PARTNET_OBJECTS": list(SUPPORTED_PARTNET_OBJECTS),
+                "use_relative_control": bool(self.use_relative_control),
+                "actuated_dof_indices": self.actuated_dof_indices.clone().to(self.device),
+                "dt": float(self.dt),
+                "cur_targets": self.cur_targets.clone().to(self.device),
+                "object_instance": dict(self.object_instance),
+                "asset_files_dict": dict(self.asset_files_dict),
+                "num_obs_dict": dict(self.num_obs_dict),
+                "obs_type": str(self.obs_type),
+                "obs_keys_manip": self.obs_keys_manip,
+                "goal_keys_manip": self.goal_keys_manip,
+                # "manip_obs": obs_dict["manip_obs"].clone().to(self.device),
+                # "manip_goal": obs_dict["manip_goal"].clone().to(self.device),
+                "f": manip_step,
+                "actions": self.actions.clone(),
+                "act_moving_average": float(self.act_moving_average),
+                "eps": 1e-2, # 1e-2,
+            }
+        
+        return manip_args
+                
+    def get_manipulability_fd_future(self, kwargs, actions):
+        '''
+        Calculates finite difference manipulability next time step conditioned on an action by perturbing each action dimension separately across parallel environments.
+
+        Args:
+            action: action
+        '''
+        # (set -> simulate -> refresh) -> no set -> simulate -> refresh
+        kwargs["actions"] = actions
+        # obs, r, done, info = self.step(actions) # set (manip_reset), simulate, refresh (compute obs). modifies env
+        obs, r, done, info = manip_step(kwargs) # set (manip_reset), simulate, refresh (compute obs). modifies env
+        manip_args_final = self.get_manip_args() # args for updated env
+        future_obs_dict = manip_args_final["obs_dict"]
+        manip_final, manip_buf_final = get_manipulability_fd_parallel_actions(manip_args_final) # simulate
+        manip_refresh(kwargs["gym"], kwargs["sim"]) # refresh
+
+        return manip_final, future_obs_dict, manip_buf_final
+    
+    def get_manipulability_fd_two_steps(self, action):
+        '''
+        Calculates finite difference manipulability for t and t+1 by perturbing each action dimension separately across parallel environments.
+
+        Args:
+            f (function): dynamics function
+            obs_keys: list of keys to obs_dict
+            action: action
+            eps: finite difference step
+        '''
+
+        # simulate -> refresh -> (set -> simulate -> refresh) -> no set -> simulate -> refresh -> set to initial
+
+        manip_args_initial = self.get_manip_args()
+        manip_initial, manip_buf_initial = get_manipulability_fd_parallel_actions(manip_args_initial) # simulate
+        manip_refresh(env.gym, env.sim) # refresh
+
+        # cost_initial, action_initial = optimize_action_cvxpy(torch.zeros(22), manip_initial, env.current_obs_dict["object_dof_pos"][0], env.current_obs_dict["object_dof_pos"][0]) # taking the optimal action
+        action_initial = action[0] # taking the action from the policy
+        obj_next = env.current_obs_dict["object_dof_pos"][0] + manip_initial.T @ action_initial
+        cost_initial = np.linalg.norm(obj_next - env.current_obs_dict["object_dof_pos"][0])
+        action_initial = action_initial.unsqueeze(0).repeat(env.num_envs, 1) # repeat for parallel envs
+        obs, r, done, info = env.step(action_initial) # set, simulate, refresh. modifies env
+        # manip_reset(env.gym, env.sim, **manip_buf_initial) # set (this is probably wrong since we want a new state)
+
+        manip_args_final = self.get_manip_args() # args for updated env
+        manip_final, manip_buf_final = get_manipulability_fd_parallel_actions(manip_args_final) # simulate
+        manip_refresh(env.gym, env.sim) # refresh
+        cost_final, action_final = optimize_action_cvxpy(torch.zeros(22), manip_final, env.current_obs_dict["object_dof_pos"][0], env.current_obs_dict["goal_dof_pos"][0])
+        action_final = action_final.unsqueeze(0).repeat(env.num_envs, 1) # repeat for parallel envs
+
+        manip_reset(env.gym, env.sim, **manip_buf_initial) # setting to initial state
+
+        return cost_initial, manip_initial, cost_final, manip_final
 
 class ArticulateTaskCamera(ArticulateTask):
     dict_obs_cls: bool = False
@@ -1986,7 +2053,7 @@ if __name__ == "__main__":
                                                    "sim_device=cpu", 
                                                    "test=false",
                                                    "task.env.useRelativeControl=true",
-                                                   "+env.set_start_pos=true",
+                                                   "+env.set_start_pos=false",
                                                 #    "+task.env.hand_init_path=allegro_hand_dof_default_pos_dexgraspnet_batch_13.npy",
                                                 #    "+task.env.hand_init_path=allegro_hand_dof_default_pos_dexgraspnet_batch_13_xyz.npy",
                                                 #    "+task.env.hand_init_path=allegro_hand_dof_default_pos_dexgraspnet_batch_13_zyx.npy",
@@ -1994,6 +2061,8 @@ if __name__ == "__main__":
                                                 #    "+task.env.hand_init_path=allegro_hand_dof_default_pos.npy",
                                                 #    "+task.env.hand_init_path=allegro_hand_dof_default_pos_zeros.npy",
                                                    "+task.env.hand_init_path=allegro_hand_dof_default_pos_spray_6.npy",
+                                                #    "+task.env.hand_init_path=allegro_hand_dof_default_pos_dexgraspnet_batch_5_no_transform.npy",
+                                                #    "+task.env.hand_init_path=dgn_grasp_world_obj_batch_5.npy",
                                                 #    "+task.env.hand_init_path=allegro_hand_dof_default_pos_scissors_closer.npy",
                                                    "task.env.resetDofPosRandomInterval=0.",
                                                 #    "task.env.load_default_pos=true",
@@ -2035,7 +2104,7 @@ if __name__ == "__main__":
     # TODO: implement function to change the pose to match dexgraspnet by applying actions
 
     obs, r, done, info = env.step(initial_action)
-    print("initial hand dofs pos after acaction: ", env.shadow_hand_dof_pos[0])
+    print("initial hand dofs pos after action: ", env.shadow_hand_dof_pos[0])
 
     t = 0
     hand_vels, palm_pos = [], []
@@ -2063,6 +2132,17 @@ if __name__ == "__main__":
         
         obs, r, done, info = env.step(action)
         # obs, r, done, info = env.step(torch.zeros_like(action))
+        cost_initial, manip_initial, cost_final, manip_final = get_manipulability_fd_two_steps(env, action)
+        print("cost_initial", cost_initial)
+        print("cost_final", cost_final)
+        print("manip_initial", manip_initial)
+        print("manip_final", manip_final)
+
+        # manip_args = get_manip_args(env)
+        # manip_new, manip_buf = get_manipulability_fd_parallel_actions(manip_args) # simulating
+        # print("manip_new", manip_new)
+        # manip_refresh(env.gym, env.sim) # refreshing
+        # manip_reset(env.gym, env.sim, **manip_buf) # setting
 
         # print(obs)
         # print("manip_obs", env.current_obs_dict["manip_obs"][0])
@@ -2071,7 +2151,7 @@ if __name__ == "__main__":
         # print("manip max", env.current_obs_dict["manipulability"].max())
         # print("manip min", env.current_obs_dict["manipulability"].min())
         print("manip norm", torch.norm(env.current_obs_dict["manipulability"]))
-        # print("hand dofs pos: ", env.shadow_hand_dof_pos[0])
+        print("hand dofs pos: ", env.shadow_hand_dof_pos[0])
         # print("error from goal: ", env.current_obs_dict["manip_obs"][0] - env.current_obs_dict["manip_goal"][0])
         # print("lower:", env.shadow_hand_dof_lower_limits)
         # print("upper:", env.shadow_hand_dof_upper_limits)

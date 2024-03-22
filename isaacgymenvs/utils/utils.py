@@ -159,7 +159,8 @@ def project_tmp_dir():
 def obs_dict_to_tensor(obs_dict, obs_keys, num_envs, device):
         obs = []
         for key in obs_keys:
-            obs.append(obs_dict[key].view(num_envs, -1))
+            if hasattr(obs_dict[key], 'view'): # if it's a tensor
+                obs.append(obs_dict[key].view(num_envs, -1))
         obs_tensor = torch.cat(obs, dim=-1).to(device)
         return obs_tensor
 
