@@ -108,6 +108,7 @@ def manip_step(
         kwargs["gym"].refresh_dof_state_tensor(kwargs["sim"])
         kwargs["gym"].refresh_actor_root_state_tensor(kwargs["sim"])
         kwargs["gym"].refresh_rigid_body_state_tensor(kwargs["sim"])
+        kwargs["gym"].refresh_net_contact_force_tensor(kwargs["sim"])
 
         # if self.obs_type == "full_state" or self.asymmetric_obs:
         #     self.gym.refresh_force_sensor_tensor(self.sim)
@@ -378,11 +379,7 @@ def get_manipulability_fd_parallel_actions(kwargs):
     
     num_manips = bs // (input_dim * 2)
 
-    # printing state tensor shapes
-    # print("root_state_tensor", kwargs["root_state_tensor"].shape)
-    # print("dof_state_tensor", kwargs["dof_state_tensor"].shape)
-    # print("rigid_body_states", kwargs["rigid_body_states"].shape)
-    # print("prev_targets", kwargs["prev_targets"].shape)
+    
 
     # copying states in groups of input_dim*2 so we can compute manipulability in parallel
     actor_root_state_tensor_rows = kwargs["root_state_tensor"].view(bs, 2, 13)[0::(input_dim * 2)] # (num_manips, 2, 13) select every (input_dim*2)-th row
@@ -422,7 +419,8 @@ def get_manipulability_fd_parallel_actions(kwargs):
         "prev_actor_root_state_tensor": initial_actor_root_state_tensor_copied.clone(),
         "prev_dof_state_tensor": initial_dof_state_tensor_copied.clone(),
         "prev_rigid_body_tensor": initial_rigid_body_tensor_copied.clone(),
-        "prev_targets": initial_prev_target_tensor_copied.clone()
+        "prev_targets": initial_prev_target_tensor_copied.clone(),
+        # "prev_contact_force_tensor": kwargs["contact_force_tensor"].clone()
     }
 
     # refresh the state tensors

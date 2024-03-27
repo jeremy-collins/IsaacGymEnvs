@@ -1,0 +1,16 @@
+defaults:
+  - ArticulateTaskNew
+  - _self_
+  - manipulability_neg_cost_vectorized
+
+env:
+  objectType: 
+    - "spray_bottle"
+  objectInstance:
+    spray_bottle: 
+      - 0
+  objectDofTargetPos: 
+    - 0.075
+  rewardParams: 
+    manipulability_neg_cost_vectorized: ${task.rewards.manipulability_neg_cost_vectorized}
+
