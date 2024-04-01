@@ -65,7 +65,7 @@ def optimize_action_gd(action, manipulability, obj_curr, obj_des, max_iters=1000
     # print("M mag", torch.norm(M).item())
 
     # visualizing the optimization
-    plot_info(hist_dict)
+    # plot_info(axs, lines, hist_dict)
 
     return cost_normalized.item(), action
 
@@ -101,7 +101,7 @@ def optimize_action_cvxpy(action, manipulability, obj_curr, obj_des, ax, max_act
     # return torch.tensor(prob.value).float(), torch.tensor(x.value).float()
     return cost_normalized, action
 
-def plot_info(axs, hist_dict):
+def plot_info(axs, lines, hist_dict):
     # Update plot data instead of creating new plots
     lines[0].set_data(range(len(hist_dict["costs"])), hist_dict["costs"])
     lines[1].set_data(range(len(hist_dict["action_norms"])), hist_dict["action_norms"])
@@ -144,9 +144,10 @@ def init_toy_env():
     config_path = "../cfg"
 
     with initialize(config_path=config_path, job_name="test_env"):
-        cfg = compose(config_name="config", overrides=["task=ManipulabilityVectorizedArticulateTaskScissors", # Spray1_toy",
-                                                   "task.env.objectType=scissors",
-                                                    # "task.env.objectType=spray_bottle",
+        cfg = compose(config_name="config", overrides=[
+                                                   "task=ManipulabilityVectorizedArticulateTaskSpray1_toy",
+                                                #    "task.env.objectType=scissors",
+                                                    "task.env.objectType=spray_bottle",
                                                         "train=ArticulateTaskPPONew",
                                                     "task.env.observationType=full_state",
                                                     "sim_device=cpu", 
@@ -159,10 +160,10 @@ def init_toy_env():
                                                 #    "+task.env.hand_init_path=allegro_hand_dof_default_pos_dexgraspnet_batch_13_no_transform.npy",
                                                 #    "+task.env.hand_init_path=allegro_hand_dof_default_pos.npy",
                                                 #    "+task.env.hand_init_path=allegro_hand_dof_default_pos_zeros.npy",
-                                                    # "+task.env.hand_init_path=allegro_hand_dof_default_pos_spray_6.npy",
+                                                    "+task.env.hand_init_path=allegro_hand_dof_default_pos_spray_6.npy",
                                                 #    "+task.env.hand_init_path=allegro_hand_dof_default_pos_dexgraspnet_batch_5_no_transform.npy",
                                                 #    "+task.env.hand_init_path=dgn_grasp_world_obj_batch_5.npy",
-                                                   "+task.env.hand_init_path=allegro_hand_dof_default_pos_scissors_closer.npy",
+                                                #    "+task.env.hand_init_path=allegro_hand_dof_default_pos_scissors_closer.npy",
                                                     "task.env.resetDofPosRandomInterval=0.",
                                                 #    "task.env.load_default_pos=true",
                                                 #    "checkpoint=./runs/full_state_spray/nn/full_state_spray.pth",
@@ -207,6 +208,7 @@ def init_toy_env():
     return env, ax
 
 def single_goal_greedy(env, goal, goal_eps=0.01):
+    total_cost = 0
     while True:
         initial_action = torch.zeros(22)
         cost, action = optimize_action_cvxpy(action=initial_action,
@@ -214,6 +216,7 @@ def single_goal_greedy(env, goal, goal_eps=0.01):
                                             obj_curr=env.current_obs_dict["manip_obs"][0],
                                             obj_des=goal,
                                             ax=ax)
+        total_cost += cost
         
         # adding noise to the optimal action
         # action += torch.randn_like(action) * 0.01
@@ -234,10 +237,12 @@ def single_goal_greedy(env, goal, goal_eps=0.01):
         # print("error from goal: ", env.current_obs_dict["manip_obs"][0] - env.current_obs_dict["manip_goal"][0])
         print("manip obs", env.current_obs_dict["manip_obs"][0])
         print("manip goal", goal)
+        print("total cost", total_cost)
 
 def traj_goal_greedy(goal_traj, env, goal_eps=0.01):
     initial_action = torch.zeros(22)
     traj_idx = 0
+    total_cost = 0
     while traj_idx < len(goal_traj):
         goal = goal_traj[traj_idx]
         cost, action = optimize_action_cvxpy(action=initial_action,
@@ -247,6 +252,7 @@ def traj_goal_greedy(goal_traj, env, goal_eps=0.01):
                                             ax=ax)
         
         plot_live_cost_bar((1 - cost), ax)
+        total_cost += cost
 
         # adding noise to the optimal action
         # action += torch.randn_like(action) * 0.01
@@ -263,26 +269,27 @@ def traj_goal_greedy(goal_traj, env, goal_eps=0.01):
         if torch.norm(env.current_obs_dict["manip_obs"][0] - goal) < goal_eps:
             traj_idx += 1
         
-        # we need to set the goal to the nearest point in the trajectory to the current position
+        # we set the goal to the nearest point in the trajectory to the current position
         else:
             traj_idx = torch.argmin(torch.norm(goal_traj - env.current_obs_dict["manip_obs"][0], dim=1))
             goal = goal_traj[traj_idx]
 
     print("reached goal")
+    print("total cost", total_cost)
 
 def get_hand_contacts(env):
     torch.set_printoptions(threshold=10_000)
-    initial_action = torch.zeros(22)
+    initial_action = torch.ones(env.num_envs, 22)
 
     while True:
-        cost, action = optimize_action_cvxpy(action=initial_action,
-                                            manipulability=env.current_obs_dict["manipulability"],
-                                            obj_curr=env.current_obs_dict["manip_obs"][0],
-                                            obj_des=env.current_obs_dict["manip_goal"][0],
-                                            ax=ax)
+        # cost, action = optimize_action_cvxpy(action=initial_action,
+        #                                     manipulability=env.current_obs_dict["manipulability"],
+        #                                     obj_curr=env.current_obs_dict["manip_obs"][0],
+        #                                     obj_des=env.current_obs_dict["manip_goal"][0],
+        #                                     ax=ax)
         
-        action = action.unsqueeze(0).repeat(env.num_envs, 1)
-        obs, r, done, info = env.step(action)
+        # action = action.unsqueeze(0).repeat(env.num_envs, 1)
+        obs, r, done, info = env.step(initial_action)
         
         contacts = env.net_cf.view(env.num_envs, -1)
         print("contacts", contacts[0])
@@ -297,11 +304,10 @@ if __name__ == "__main__":
 
     # initial_obj_pose = torch.tensor([-0.12, -0.12, 0.2]) # , 0., 0., 0., 1.])
     # goal_obj_pose = torch.tensor([-0.0, -0.12, 0.2]) # , 0., 0., 0., 1.])
-    # initial_obj_pose = torch.tensor([-0.])
-    initial_obj_pose = env.current_obs_dict["manip_obs"][0]
+
+    # initial_obj_pose = env.current_obs_dict["manip_obs"][0]
     # goal_obj_pose = torch.tensor([0.075])
-    goal_obj_pose = torch.tensor([0.2])
-    goal_traj = torch.stack([torch.linspace(initial_obj_pose[i], goal_obj_pose[i], 10) for i in range(initial_obj_pose.shape[0])], dim=1)
+    # goal_traj = torch.stack([torch.linspace(initial_obj_pose[i], goal_obj_pose[i], 10) for i in range(initial_obj_pose.shape[0])], dim=1)
     # traj_goal_greedy(goal_traj, env)
 
     get_hand_contacts(env)

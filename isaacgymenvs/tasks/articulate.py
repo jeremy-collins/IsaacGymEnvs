@@ -815,7 +815,7 @@ class ArticulateTask(VecTask, IsaacGymCameraBase):
             self.yrot_link_index = self.gym.find_asset_rigid_body_index(allegro_hand_asset, "rotation_y")
             self.zrot_link_index = self.gym.find_asset_rigid_body_index(allegro_hand_asset, "allegro_mount")
 
-            # create fingertip force-torque sensors
+            # # create fingertip force-torque sensors
             # if self.obs_type == "full_state" or self.bs:
             #     for ft_handle in self.fingertip_handles:
             #         env_sensors = []
@@ -1164,31 +1164,31 @@ class ArticulateTask(VecTask, IsaacGymCameraBase):
             manip_reset(self.gym, self.sim, **self.prev_bufs_manip)
 
         # get rb forces
-        force_noise_scale = self.get_or_sample_noise_scale(self.force_scale)
+        # force_noise_scale = self.get_or_sample_noise_scale(self.force_scale)
         # hand_in_contact = self.get_hand_in_contact()
-        if force_noise_scale > 0.0: # and hand_in_contact.any():
-            self.rb_forces *= torch.pow(self.force_decay, self.dt / self.force_decay_interval)
+        # if force_noise_scale > 0.0: # and hand_in_contact.any():
+        #     self.rb_forces *= torch.pow(self.force_decay, self.dt / self.force_decay_interval)
 
-            # apply new forces
-            # force_indices = (torch.rand(self.num_envs, device=self.device) < self.random_force_prob).nonzero()
-            # sample env ids from hand_in_contact boolean tensor
-            force_indices = hand_in_contact.nonzero(as_tuple=False)
-            force_indices = force_indices[torch.rand(len(force_indices), device=self.device) < self.random_force_prob]
-            self.rb_forces[force_indices, self.object_rb_handles, :] = (
-                torch.randn_like(
-                    self.rb_forces[force_indices, self.object_rb_handles, :],
-                    device=self.device,
-                )
-                * self.object_rb_masses.unsqueeze(-1).unsqueeze(0)
-                * force_noise_scale
-            )
+        #     # apply new forces
+        #     # force_indices = (torch.rand(self.num_envs, device=self.device) < self.random_force_prob).nonzero()
+        #     # sample env ids from hand_in_contact boolean tensor
+        #     force_indices = hand_in_contact.nonzero(as_tuple=False)
+        #     force_indices = force_indices[torch.rand(len(force_indices), device=self.device) < self.random_force_prob]
+        #     self.rb_forces[force_indices, self.object_rb_handles, :] = (
+        #         torch.randn_like(
+        #             self.rb_forces[force_indices, self.object_rb_handles, :],
+        #             device=self.device,
+        #         )
+        #         * self.object_rb_masses.unsqueeze(-1).unsqueeze(0)
+        #         * force_noise_scale
+        #     )
 
-            self.gym.apply_rigid_body_force_tensors(
-                self.sim,
-                gymtorch.unwrap_tensor(self.rb_forces),
-                None,
-                gymapi.LOCAL_SPACE,
-            )
+        #     self.gym.apply_rigid_body_force_tensors(
+        #         self.sim,
+        #         gymtorch.unwrap_tensor(self.rb_forces),
+        #         None,
+        #         gymapi.LOCAL_SPACE,
+        #     )
 
     def assign_act(self, actions):
         if self.debug_zero_actions:
@@ -1458,9 +1458,9 @@ class ArticulateTask(VecTask, IsaacGymCameraBase):
         self.gym.refresh_rigid_body_state_tensor(self.sim)
         self.gym.refresh_net_contact_force_tensor(self.sim)
 
-        # if self.obs_type == "full_state" or self.asymmetric_obs:
-        #     self.gym.refresh_force_sensor_tensor(self.sim)
-        #     self.gym.refresh_dof_force_tensor(self.sim)
+        if self.obs_type == "full_state" or self.asymmetric_obs:
+            self.gym.refresh_force_sensor_tensor(self.sim)
+            self.gym.refresh_dof_force_tensor(self.sim)
 
         if self.num_objects > 1:
             palm_index = [self.palm_index + b for b in self.env_num_bodies]
@@ -1600,22 +1600,17 @@ class ArticulateTask(VecTask, IsaacGymCameraBase):
         obs_dict["object_instance_one_hot"] = object_instance_one_hot.to(self.device)
         obs_dict["object_type_one_hot"] = object_type_one_hot.to(self.device)
 
-        # self.obs_keys_manip = ["object_pose", "object_dof_pos"]
-        # self.goal_keys_manip = ["goal_pose", "goal_dof_pos"]
-        self.obs_keys_manip = self.cfg["env"].get("manip_obs_keys", ["object_dof_pos"])
-        self.goal_keys_manip = self.cfg["env"].get("manip_goal_keys", ["object_dof_pos"])
-
-        obs_dict["manip_obs"] = obs_dict_to_tensor(obs_dict, self.obs_keys_manip, self.num_envs, self.device)
-        obs_dict["manip_goal"] = obs_dict_to_tensor(obs_dict, self.goal_keys_manip, self.num_envs, self.device)
-        self.manip_obs_dict = obs_dict
-
         # checking for the word "manipulability" in the reward_params keys
         if any(["manipulability" in key for key in self.reward_params.keys()]):
+            self.obs_keys_manip = self.cfg["env"].get("manip_obs_keys", ["object_dof_pos"])
+            self.goal_keys_manip = self.cfg["env"].get("manip_goal_keys", ["object_dof_pos"])
+
+            obs_dict["manip_obs"] = obs_dict_to_tensor(obs_dict, self.obs_keys_manip, self.num_envs, self.device)
+            obs_dict["manip_goal"] = obs_dict_to_tensor(obs_dict, self.goal_keys_manip, self.num_envs, self.device)
+            self.manip_obs_dict = obs_dict
+
             # creating copies of every variable manipulability interacts with
             manip_args = self.get_manip_args()
-
-            # for key in manip_args.keys():
-            #     print(key, type(manip_args[key]))
 
             if "manipulability_reward" in self.reward_params.keys():
                 obs_dict["manipulability"], self.prev_bufs_manip = get_manipulability_fd(manip_args)
@@ -1781,23 +1776,23 @@ class ArticulateTask(VecTask, IsaacGymCameraBase):
 
         manip_args_initial = self.get_manip_args()
         manip_initial, manip_buf_initial = get_manipulability_fd_parallel_actions(manip_args_initial) # simulate
-        manip_refresh(env.gym, env.sim) # refresh
+        manip_refresh(self.gym, self.sim) # refresh
 
-        # cost_initial, action_initial = optimize_action_cvxpy(torch.zeros(22), manip_initial, env.current_obs_dict["object_dof_pos"][0], env.current_obs_dict["object_dof_pos"][0]) # taking the optimal action
+        # cost_initial, action_initial = optimize_action_cvxpy(torch.zeros(22), manip_initial, self.current_obs_dict["object_dof_pos"][0], self.current_obs_dict["object_dof_pos"][0]) # taking the optimal action
         action_initial = action[0] # taking the action from the policy
-        obj_next = env.current_obs_dict["object_dof_pos"][0] + manip_initial.T @ action_initial
-        cost_initial = np.linalg.norm(obj_next - env.current_obs_dict["object_dof_pos"][0])
-        action_initial = action_initial.unsqueeze(0).repeat(env.num_envs, 1) # repeat for parallel envs
-        obs, r, done, info = env.step(action_initial) # set, simulate, refresh. modifies env
-        # manip_reset(env.gym, env.sim, **manip_buf_initial) # set (this is probably wrong since we want a new state)
+        obj_next = self.current_obs_dict["object_dof_pos"][0] + manip_initial.T @ action_initial
+        cost_initial = np.linalg.norm(obj_next - self.current_obs_dict["object_dof_pos"][0])
+        action_initial = action_initial.unsqueeze(0).repeat(self.num_envs, 1) # repeat for parallel envs
+        obs, r, done, info = self.step(action_initial) # set, simulate, refresh. modifies env
+        # manip_reset(self.gym, self.sim, **manip_buf_initial) # set (this is probably wrong since we want a new state)
 
         manip_args_final = self.get_manip_args() # args for updated env
         manip_final, manip_buf_final = get_manipulability_fd_parallel_actions(manip_args_final) # simulate
-        manip_refresh(env.gym, env.sim) # refresh
-        cost_final, action_final = optimize_action_cvxpy(torch.zeros(22), manip_final, env.current_obs_dict["object_dof_pos"][0], env.current_obs_dict["goal_dof_pos"][0])
-        action_final = action_final.unsqueeze(0).repeat(env.num_envs, 1) # repeat for parallel envs
+        manip_refresh(self.gym, self.sim) # refresh
+        cost_final, action_final = optimize_action_cvxpy(torch.zeros(22), manip_final, self.current_obs_dict["object_dof_pos"][0], self.current_obs_dict["goal_dof_pos"][0])
+        action_final = action_final.unsqueeze(0).repeat(self.num_envs, 1) # repeat for parallel envs
 
-        manip_reset(env.gym, env.sim, **manip_buf_initial) # setting to initial state
+        manip_reset(self.gym, self.sim, **manip_buf_initial) # setting to initial state
 
         return cost_initial, manip_initial, cost_final, manip_final
 
