@@ -1138,6 +1138,27 @@ class ArticulateTask(VecTask, IsaacGymCameraBase):
             IsaacGymCameraBase.compute_observations(self)
         ret = VecTask.reset(self)
         return ret
+    
+    def get_hand_in_contact(self):
+        # Doesn't work in GPU mode
+        contact_forces = self.net_cf.view(-1, self.env_num_bodies, 3)
+        hand_in_contact = torch.zeros_like(self.reset_buf)
+        # compute hand_in_contact when contact forces between hand and object are non-zero per env
+        obj_indices, hand_indices = self.object_rb_handles, self.shadow_hand_rb_handles.flatten()
+        contact_envs = (contact_forces[:, obj_indices].any(dim=-1).any(dim=-1)) & (
+            contact_forces[:, hand_indices].any(dim=-1).any(dim=-1)
+        )
+        contact_env_ids = contact_envs.nonzero()
+        if len(contact_env_ids) == 0:
+            return hand_in_contact
+        contact_forces = contact_forces[contact_envs]
+        # 1 if any contact force for the object is non-zero and identical (but negative) on any corresponding body from the hand
+        x = contact_forces[:, self.object_rb_handles]  # .nonzero()
+        y = -contact_forces[:, self.shadow_hand_rb_handles.flatten()]  # .any(dim=-1).nonzero()
+        # X: N, M, 3, Y: N, K, 3, X == Y: N, M, K
+        x_eq_y = (x[:, None, :, :] == y[:, :, None, :]).all(dim=-1).any(dim=-1).any(dim=-1)
+        hand_in_contact[contact_env_ids[x_eq_y]] = 1
+        return hand_in_contact
 
     def pre_physics_step(self, actions):
         self.extras = {}
@@ -1458,9 +1479,9 @@ class ArticulateTask(VecTask, IsaacGymCameraBase):
         self.gym.refresh_rigid_body_state_tensor(self.sim)
         self.gym.refresh_net_contact_force_tensor(self.sim)
 
-        if self.obs_type == "full_state" or self.asymmetric_obs:
-            self.gym.refresh_force_sensor_tensor(self.sim)
-            self.gym.refresh_dof_force_tensor(self.sim)
+        # if self.obs_type == "full_state" or self.asymmetric_obs:
+        #     self.gym.refresh_force_sensor_tensor(self.sim)
+        #     self.gym.refresh_dof_force_tensor(self.sim)
 
         if self.num_objects > 1:
             palm_index = [self.palm_index + b for b in self.env_num_bodies]

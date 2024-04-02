@@ -145,7 +145,7 @@ def init_toy_env():
 
     with initialize(config_path=config_path, job_name="test_env"):
         cfg = compose(config_name="config", overrides=[
-                                                   "task=ManipulabilityVectorizedArticulateTaskSpray1_toy",
+                                                   "task=ArticulateTaskSpray1", # ManipulabilityVectorizedArticulateTaskSpray1_toy",
                                                 #    "task.env.objectType=scissors",
                                                     "task.env.objectType=spray_bottle",
                                                         "train=ArticulateTaskPPONew",
@@ -291,9 +291,12 @@ def get_hand_contacts(env):
         # action = action.unsqueeze(0).repeat(env.num_envs, 1)
         obs, r, done, info = env.step(initial_action)
         
-        contacts = env.net_cf.view(env.num_envs, -1)
-        print("contacts", contacts[0])
-        fingertip_contacts = contacts[:, env.fingertip_indices]
+        contacts = env.net_cf
+        print("contacts", contacts)
+        # fingertip_contacts = contacts[:, env.fingertip_indices]
+
+        hand_in_contact = env.get_hand_in_contact()
+        print("hand in contact", hand_in_contact)
 
 
 if __name__ == "__main__":
@@ -311,3 +314,4 @@ if __name__ == "__main__":
     # traj_goal_greedy(goal_traj, env)
 
     get_hand_contacts(env)
+    
