@@ -316,7 +316,7 @@ class ArticulateTask(VecTask, IsaacGymCameraBase):
             self.gym.set_sim_rigid_body_states(self.sim, initial_state, gymapi.STATE_ALL)
             self.gym.simulate(self.sim)
 
-        if self.obs_type == "full_state" or self.asymmetric_obs:
+        if (self.obs_type == "full_state" or self.asymmetric_obs) and self.physics_engine == gymapi.SIM_PHYSX:
             #     sensor_tensor = self.gym.acquire_force_sensor_tensor(self.sim)
             #     self.vec_sensor_tensor = gymtorch.wrap_tensor(sensor_tensor).view(self.num_envs, self.num_fingertips * 6)
 
@@ -521,9 +521,9 @@ class ArticulateTask(VecTask, IsaacGymCameraBase):
             # print("Max effort: ", shadow_hand_dof_props["effort"][i])
             shadow_hand_dof_props["effort"][i] = 0.5
             if i < 6 and self.num_actions == 22:
-                shadow_hand_dof_props["stiffness"][i] = 30
-                shadow_hand_dof_props["damping"][i] = 10
-                shadow_hand_dof_props["friction"][i] = 0.0
+                shadow_hand_dof_props["stiffness"][i] = 1000 # 30 # TODO: change back to defaults
+                shadow_hand_dof_props["damping"][i] = 1000 # 10
+                shadow_hand_dof_props["friction"][i] = 1000 # 0.0
                 shadow_hand_dof_props["armature"][i] = 0.0
             else:
                 shadow_hand_dof_props["stiffness"][i] = 3
@@ -1138,27 +1138,6 @@ class ArticulateTask(VecTask, IsaacGymCameraBase):
             IsaacGymCameraBase.compute_observations(self)
         ret = VecTask.reset(self)
         return ret
-    
-    def get_hand_in_contact(self):
-        # Doesn't work in GPU mode
-        contact_forces = self.net_cf.view(-1, self.env_num_bodies, 3)
-        hand_in_contact = torch.zeros_like(self.reset_buf)
-        # compute hand_in_contact when contact forces between hand and object are non-zero per env
-        obj_indices, hand_indices = self.object_rb_handles, self.shadow_hand_rb_handles.flatten()
-        contact_envs = (contact_forces[:, obj_indices].any(dim=-1).any(dim=-1)) & (
-            contact_forces[:, hand_indices].any(dim=-1).any(dim=-1)
-        )
-        contact_env_ids = contact_envs.nonzero()
-        if len(contact_env_ids) == 0:
-            return hand_in_contact
-        contact_forces = contact_forces[contact_envs]
-        # 1 if any contact force for the object is non-zero and identical (but negative) on any corresponding body from the hand
-        x = contact_forces[:, self.object_rb_handles]  # .nonzero()
-        y = -contact_forces[:, self.shadow_hand_rb_handles.flatten()]  # .any(dim=-1).nonzero()
-        # X: N, M, 3, Y: N, K, 3, X == Y: N, M, K
-        x_eq_y = (x[:, None, :, :] == y[:, :, None, :]).all(dim=-1).any(dim=-1).any(dim=-1)
-        hand_in_contact[contact_env_ids[x_eq_y]] = 1
-        return hand_in_contact
 
     def pre_physics_step(self, actions):
         self.extras = {}
@@ -1212,6 +1191,7 @@ class ArticulateTask(VecTask, IsaacGymCameraBase):
         #     )
 
     def assign_act(self, actions):
+        actions[:, 0:6] *= 0
         if self.debug_zero_actions:
             if self.use_relative_control:
                 actions *= 0
@@ -1480,8 +1460,10 @@ class ArticulateTask(VecTask, IsaacGymCameraBase):
         self.gym.refresh_net_contact_force_tensor(self.sim)
 
         # if self.obs_type == "full_state" or self.asymmetric_obs:
-        #     self.gym.refresh_force_sensor_tensor(self.sim)
-        #     self.gym.refresh_dof_force_tensor(self.sim)
+        self.gym.refresh_force_sensor_tensor(self.sim)
+
+        if self.physics_engine == gymapi.SIM_PHYSX:
+            self.gym.refresh_dof_force_tensor(self.sim)
 
         if self.num_objects > 1:
             palm_index = [self.palm_index + b for b in self.env_num_bodies]
@@ -1635,11 +1617,11 @@ class ArticulateTask(VecTask, IsaacGymCameraBase):
 
             if "manipulability_reward" in self.reward_params.keys():
                 obs_dict["manipulability"], self.prev_bufs_manip = get_manipulability_fd(manip_args)
-                # obs_dict["manipulability"], _ = get_manipulability_fd(manip_args)
             elif "manipulability_reward_vectorized" in self.reward_params.keys()\
                 or "manipulability_neg_cost_vectorized" in self.reward_params.keys():
-                obs_dict["manipulability"], self.prev_bufs_manip = get_manipulability_fd_parallel_actions(manip_args)
-                # obs_dict["manipulability"], _ = get_manipulability_fd_parallel_actions(manip_args)
+                # obs_dict["manipulability"], self.prev_bufs_manip = get_manipulability_fd_parallel_actions(manip_args)
+                initial_state = np.copy(self.gym.get_sim_rigid_body_states(self.sim, gymapi.STATE_ALL)) # (num_envs*(23+7))
+                obs_dict["manipulability"] = get_manipulability_fd_cpu(manip_args, initial_state)
             elif "manipulability_neg_cost_two_step_vectorized" in self.reward_params.keys():
                 obs_dict["manipulability"], self.prev_bufs_manip = get_manipulability_fd_parallel_actions(manip_args)
                 next_action = self.actions.clone() # TODO: replace action
@@ -1648,7 +1630,6 @@ class ArticulateTask(VecTask, IsaacGymCameraBase):
                 obs_dict["future_manip_goal"] = obs_dict_to_tensor(future_obs_dict, self.goal_keys_manip, self.num_envs, self.device)
             elif "manipulability_reward_vec" in self.reward_params.keys():
                 obs_dict["manipulability"], self.prev_bufs_manip = get_manipulability_fd_rand_vec(manip_args)
-                # obs_dict["manipulability"], _ = get_manipulability_fd_rand_vec(manip_args)
             else:
                 raise NotImplementedError
 
@@ -1763,6 +1744,67 @@ class ArticulateTask(VecTask, IsaacGymCameraBase):
             }
         
         return manip_args
+    
+    # def get_manip_args_no_copy(self):
+    #     manip_args = {
+    #             "gym": self.gym,
+    #             "sim": self.sim,
+    #             "device": self.device,
+    #             "clip_actions": self.clip_actions,
+    #             "num_envs": int(self.num_envs),
+    #             "shadow_hand_dof_pos": self.shadow_hand_dof_pos,
+    #             "shadow_hand_dof_vel": self.shadow_hand_dof_vel,
+    #             "shadow_hand_dof_lower_limits": self.shadow_hand_dof_lower_limits,
+    #             "shadow_hand_dof_upper_limits": self.shadow_hand_dof_upper_limits,
+    #             "shadow_hand_dof_speed_scale": float(self.shadow_hand_dof_speed_scale),
+    #             "object_indices": self.object_indices,
+    #             "hand_indices": self.hand_indices,
+    #             "palm_index": int(self.palm_index),
+    #             "fingertip_indices": self.fingertip_indices,
+    #             "root_state_tensor": self.root_state_tensor,
+    #             "dof_state_tensor": self.dof_state,
+    #             "rigid_body_states": self.rigid_body_states,
+    #             "object_dof_pos": self.object_dof_pos,
+    #             "object_dof_lower_limits": self.object_dof_lower_limits,
+    #             "object_dof_upper_limits": self.object_dof_upper_limits,
+    #             "object_target_dof_pos": self.object_target_dof_pos,
+    #             "scale_dof_pos": bool(self.scale_dof_pos),
+    #             "object_target_dof_idx": list(self.object_target_dof_idx),
+    #             "vel_obs_scale": float(self.vel_obs_scale),
+    #             "num_objects": int(self.num_objects),
+    #             "env_num_bodies": int(self.env_num_bodies) if not torch.is_tensor(self.env_num_bodies) else self.env_num_bodies,
+    #             "goal_states": self.goal_states,
+    #             "hand_init_pos": self.hand_init_pos,
+    #             "hand_init_quat": self.hand_init_quat,
+    #             "actuated_dof_indices": self.actuated_dof_indices,
+    #             "prev_targets": self.prev_targets,
+    #             "obs_keys": list(self.obs_keys),
+    #             "obs_dict": self.manip_obs_dict,
+    #             "current_obs_dict": self.manip_obs_dict,
+    #             "obs_buf": self.obs_buf,
+    #             "max_obj_instances": int(self.max_obj_instances),
+    #             "object_type": list(self.object_type),
+    #             "env_instance_order": list(self.env_instance_order),
+    #             "SUPPORTED_PARTNET_OBJECTS": list(SUPPORTED_PARTNET_OBJECTS),
+    #             "use_relative_control": bool(self.use_relative_control),
+    #             "dt": float(self.dt),
+    #             "cur_targets": self.cur_targets,
+    #             "object_instance": self.object_instance,
+    #             "asset_files_dict": self.asset_files_dict,
+    #             "num_obs_dict": self.num_obs_dict,
+    #             "obs_type": str(self.obs_type),
+    #             "obs_keys_manip": self.obs_keys_manip,
+    #             "goal_keys_manip": self.goal_keys_manip,
+    #             # "manip_obs": obs_dict["manip_obs"].clone().to(self.device),
+    #             # "manip_goal": obs_dict["manip_goal"].clone().to(self.device),
+    #             "f": manip_step,
+    #             "actions": self.actions,
+    #             "act_moving_average": float(self.act_moving_average),
+    #             "eps": 1e-2,
+    #             "contact_force_tensor": self.net_cf,
+    #         }
+        
+    #     return manip_args
                 
     def get_manipulability_fd_future(self, kwargs, actions):
         '''

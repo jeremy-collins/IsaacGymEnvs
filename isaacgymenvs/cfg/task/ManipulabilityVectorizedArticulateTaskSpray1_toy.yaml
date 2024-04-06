@@ -15,6 +15,7 @@ defaults:
 name: ArticulateTask
 
 physics_engine: ${..physics_engine}
+# physics_engine: flex
 
 # if given, will override the device setting in gym.
 env:
@@ -199,8 +200,8 @@ sim:
   substeps: 2
   up_axis: "z"
   use_gpu_pipeline: ${eq:${...pipeline},"gpu"}
-  gravity: [0.0, 0.0, -9.81]
-  # gravity: [0.0, 0.0, 0.0]
+  # gravity: [0.0, 0.0, -9.81]
+  gravity: [0.0, 0.0, 0.0]
   physx:
     num_threads: ${....num_threads}
     solver_type: ${....solver_type}
@@ -214,4 +215,11 @@ sim:
     bounce_threshold_velocity: 0.2
     max_depenetration_velocity: 1000.0
     default_buffer_size_multiplier: 5.0
-    contact_collection: 0 # 0: CC_NEVER (don't collect contact info), 1: CC_LAST_SUBSTEP (collect only contacts on last substep), 2: CC_ALL_SUBSTEPS (default - all contacts)
+    contact_collection: 1 # 0: CC_NEVER (don't collect contact info), 1: CC_LAST_SUBSTEP (collect only contacts on last substep), 2: CC_ALL_SUBSTEPS (default - all contacts)
+  # flex:
+  #   shape_collision_margin: 0.25
+  #   num_outer_iterations: 4
+  #   num_inner_iterations: 10
+  #   return_contacts: True
+  #   solver_type: 6
+  #   max_rigid_contacts: 8388608 # 8*1024*1024

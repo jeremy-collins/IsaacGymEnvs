@@ -4,6 +4,7 @@ from isaacgym import gymtorch
 from isaacgym.torch_utils import *
 from isaacgymenvs.utils.utils import obs_dict_to_tensor
 import torch
+from isaacgym import gymapi
 
 SUPPORTED_PARTNET_OBJECTS = [
     "dispenser",
@@ -80,12 +81,14 @@ def manip_step(
 
         #########
 
-        manip_substeps = 1
+        manip_substeps = 2
         for i in range(manip_substeps):
             # if self.force_render:
                 # self.render()
             # print("simulating (manip_step)")
             kwargs["gym"].simulate(kwargs["sim"])
+            kwargs["gym"].fetch_results(kwargs["sim"], True)
+
 
         # to fix!
         # if self.device == "cpu":
@@ -379,8 +382,6 @@ def get_manipulability_fd_parallel_actions(kwargs):
     
     num_manips = bs // (input_dim * 2)
 
-    
-
     # copying states in groups of input_dim*2 so we can compute manipulability in parallel
     actor_root_state_tensor_rows = kwargs["root_state_tensor"].view(bs, 2, 13)[0::(input_dim * 2)] # (num_manips, 2, 13) select every (input_dim*2)-th row
     initial_actor_root_state_tensor_copied_rows = actor_root_state_tensor_rows.repeat_interleave((input_dim * 2), dim=0) # (num_manips*input_dim*2, 2, 13) copy each row input_dim times
@@ -403,7 +404,8 @@ def get_manipulability_fd_parallel_actions(kwargs):
     eps_parallel = torch.eye(input_dim, device=kwargs["device"]).repeat(num_manips, 1).repeat_interleave(2, dim=0) * kwargs["eps"]  # (num_manips*input_dim*2, input_dim)
     eps_parallel[1::2] *= -1 # alternate rows have opposite signs
 
-    kwargs["actions"] += eps_parallel
+    # kwargs["actions"] += eps_parallel
+    kwargs["actions"] = eps_parallel
 
     obs_dict_1, _, _, _ = kwargs["f"](kwargs)
 
@@ -429,6 +431,70 @@ def get_manipulability_fd_parallel_actions(kwargs):
     # kwargs["gym"].refresh_rigid_body_state_tensor(kwargs["sim"])
 
     return manipulability_fd, prev_bufs_manip
+
+
+def get_manipulability_fd_cpu(kwargs, initial_state):
+    '''
+    Calculates finite difference manipulability by perturbing each action dimension separately across parallel environments.
+
+    Args:
+        f (function): dynamics function
+        obs_keys: list of keys to obs_dict
+        action: action
+        eps: finite difference step
+    '''
+
+    obs = obs_dict_to_tensor(kwargs["obs_dict"], kwargs["obs_keys_manip"], kwargs["num_envs"], kwargs["device"])
+    num_envs = kwargs["actions"].shape[0]
+    input_dim = kwargs["actions"].shape[1]
+    output_dim = obs.shape[1]
+    # manipulability_fd = torch.empty((bs, output_dim, input_dim), dtype=torch.float64, device=self.device) # TODO: allocate outside of this function
+    
+    # initial_state = np.copy(kwargs["gym"].get_sim_rigid_body_states(kwargs["sim"], gymapi.STATE_ALL)) # (num_envs*(23+7))
+    print("initial state shape:", initial_state.shape)
+
+    assert num_envs % (input_dim * 2) == 0, "the number of environments must be divisible by 2 * input dim for vectorized finite difference manipulability calculation"
+    
+    num_manips = num_envs // (input_dim * 2)
+
+    initial_state_synced = initial_state
+    # # TODO: Move state sync into its own function
+    # initial_state_rows = initial_state.reshape((num_envs, -1))[0::(input_dim * 2)] # (num_manips, 30) # select every input_dim-th row
+    # repeated_rows = np.repeat(initial_state_rows, repeats=(input_dim * 2), axis=0)
+    # initial_state_synced = repeated_rows.reshape((num_manips*input_dim*2, -1)) # (num_manips*input_dim*2, num_rigid_bodies) reshape to original shape
+
+    # identity matrix with adjacent rows having opposite signs ([1, 0, 0], [-1, 0, 0], [0, 1, 0], [0, -1, 0], ...)
+    eps_parallel = torch.eye(input_dim, device=kwargs["device"]).repeat(num_manips, 1).repeat_interleave(2, dim=0) * kwargs["eps"]  # (num_manips*input_dim*2, input_dim)
+    eps_parallel[1::2] *= -1 # alternate rows have opposite signs
+
+    # kwargs["actions"] += eps_parallel
+    kwargs["actions"] = eps_parallel
+
+    obs_dict_1, _, _, _ = kwargs["f"](kwargs)
+
+    states = obs_dict_to_tensor(obs_dict_1, kwargs["obs_keys_manip"], kwargs["num_envs"], kwargs["device"]) # (num_manips*input_dim*2, output_dim)
+
+    next_state_1 = states[0::2] # (num_manips*input_dim, output_dim) # even rows
+    next_state_2 = states[1::2] # (num_manips*input_dim, output_dim) # odd rows
+
+    # doutput/dinput
+    manipulability_fd = (next_state_1 - next_state_2) / (2 * kwargs["eps"]) # (num_manips*input_dim, output_dim)
+
+    kwargs["gym"].set_sim_rigid_body_states(kwargs["sim"], initial_state_synced, gymapi.STATE_ALL)
+    kwargs["gym"].set_sim_rigid_body_states(kwargs["sim"], initial_state, gymapi.STATE_ALL)
+    # for i in range(kwargs["num_envs"]):
+    #     kwargs["gym"].set_actor_dof_position_targets(env_handles[i], actor_handles[i], np.array([initial_obj_dof_pos_targets[i][0][0], initial_obj_dof_pos_targets[i][0][1]], dtype=np.float32))
+    #     kwargs["gym"].set_actor_dof_velocity_targets(env_handles[i], actor_handles[i], np.array([initial_obj_dof_vel_targets[i][0][0], initial_obj_dof_vel_targets[i][0][1]], dtype=np.float32))
+
+    #     initial_hand_dof_pos_targets_numpy = np.concatenate(([initial_hand_dof_pos_targets[i][j][0] for j in range(22)], [initial_hand_dof_pos_targets[i][j][1] for j in range(22)]), axis=0).astype(np.float32)
+    #     initial_hand_dof_vel_targets_numpy = np.concatenate(([initial_hand_dof_vel_targets[i][j][0] for j in range(22)], [initial_hand_dof_vel_targets[i][j][1] for j in range(22)]), axis=0).astype(np.float32)
+    #     kwargs["gym"].set_actor_dof_position_targets(env_handles[i], hand_handles[i], initial_hand_dof_pos_targets_numpy)
+    #     kwargs["gym"].set_actor_dof_velocity_targets(env_handles[i], hand_handles[i], initial_hand_dof_vel_targets_numpy)
+    
+    kwargs["gym"].simulate(kwargs["sim"])
+    kwargs["gym"].fetch_results(kwargs["sim"], True)
+    kwargs["gym"].refresh_rigid_body_state_tensor(kwargs["sim"])
+    return manipulability_fd
 
 def get_manipulability_fd_rand_vec(kwargs):
     '''

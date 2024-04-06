@@ -7,6 +7,8 @@
 # python train.py task=ManipulabilityVectorizedArticulateTaskSpray1 train=AllegroHandGraspPPO experiment=ManipulabilityVectorizedArticulateTaskSpray1 task.rewards.manipulability_reward_vectorized.scale=1 task.rewards.hand_dist.scale=-50. wandb_activate=false headless=true num_envs=16368 train.params.config.max_epochs=1000 -m
 python train.py task=ManipulabilityVectorizedArticulateTaskSpray1 train=AllegroHandGraspPPO experiment=ManipulabilityVectorizedArticulateTaskSpray1_2-18 task.rewards.manipulability_reward_vectorized.scale=1 task.rewards.hand_dist.scale=-50. wandb_activate=true headless=false num_envs=16368 train.params.config.max_epochs=1000 task.env.resetDofPosRandomInterval=0. -m
 
+python train.py task=ManipulabilityVectorizedNegCostArticulateTaskSpray1 train=AllegroHandGraspPPO experiment=ManipulabilityVectorizedNegCostArticulateTaskSpray1_3-25_0 task.rewards.manipulability_neg_cost_vectorized.scale=1. task.rewards.hand_dist.scale=-50. wandb_activate=true headless=false num_envs=16368 train.params.config.max_epochs=1000 task.env.resetDofPosRandomInterval=0. -m
+
 # python train.py \
 #   task=ManipulabilityVectorizedArticulateTaskScissors \
 #   train=AllegroHandGraspPPO \

@@ -8,6 +8,10 @@ import time
 import os
 import matplotlib.pyplot as plt
 import cvxpy as cp
+import time
+from isaacgym import gymapi
+from isaacgymenvs.utils.manipulability import *
+from collections import deque
 
 def optimize_action_gd(action, manipulability, obj_curr, obj_des, max_iters=1000, alpha=1., action_penalty=.01, clip_grad=None):
     hist_dict = {"costs": [], "action_norms": [], "grad_norms": [], "obj_dists": []}
@@ -70,12 +74,16 @@ def optimize_action_gd(action, manipulability, obj_curr, obj_des, max_iters=1000
     return cost_normalized.item(), action
 
 
-def optimize_action_cvxpy(action, manipulability, obj_curr, obj_des, ax, max_action=0.1):
+def optimize_action_cvxpy(env, goal, ax=None, max_action=0.1):
     # minimizing the cost function using cvxpy
 
     # Set up CVX problem
-    x = cp.Variable(action.shape[0])
-    M = manipulability.T
+    x = cp.Variable(22)
+    M = env.current_obs_dict["manipulability"].T.cpu()
+    # M = get_manipulability_fd_toy(env, manip_obs_dict=env.current_obs_dict, obs_keys_manip=["object_dof_pos"]).T.cpu()
+    # obj_curr = env.current_obs_dict["manip_obs"].cpu()
+    obj_curr = env.current_obs_dict["object_dof_pos"].cpu()
+    obj_des = goal.cpu()
     obj_next = obj_curr + M @ x
     cost = cp.norm(obj_next - obj_des)
     objective = cp.Minimize(cost)
@@ -88,17 +96,9 @@ def optimize_action_cvxpy(action, manipulability, obj_curr, obj_des, ax, max_act
     # Solve the problem
     prob.solve()
     cost = torch.tensor(prob.value).float()
-    cost_normalized = prob.value / torch.norm(obj_des - obj_curr)
+    cost_normalized = prob.value / (torch.norm(obj_des - obj_curr) + 1e-9)
     action = torch.tensor(x.value).float()
 
-    print("cost", cost.item())
-    print("cost_normalized", cost_normalized.item())
-    # print("M.T @ (obj_curr - obj_des)", M.T @ (obj_curr - obj_des))
-    # print("action norm", torch.norm(action).item())
-    # print("action", action)
-
-    # return prob.value, x.value
-    # return torch.tensor(prob.value).float(), torch.tensor(x.value).float()
     return cost_normalized, action
 
 def plot_info(axs, lines, hist_dict):
@@ -145,28 +145,19 @@ def init_toy_env():
 
     with initialize(config_path=config_path, job_name="test_env"):
         cfg = compose(config_name="config", overrides=[
-                                                   "task=ArticulateTaskSpray1", # ManipulabilityVectorizedArticulateTaskSpray1_toy",
+                                                   "task=ManipulabilityVectorizedArticulateTaskSpray1_toy",
                                                 #    "task.env.objectType=scissors",
                                                     "task.env.objectType=spray_bottle",
                                                         "train=ArticulateTaskPPONew",
                                                     "task.env.observationType=full_state",
                                                     "sim_device=cpu", 
+                                                    "pipeline=cpu", 
                                                     "test=false",
                                                     "task.env.useRelativeControl=true",
                                                     "+env.set_start_pos=false",
-                                                #    "+task.env.hand_init_path=allegro_hand_dof_default_pos_dexgraspnet_batch_13.npy",
-                                                #    "+task.env.hand_init_path=allegro_hand_dof_default_pos_dexgraspnet_batch_13_xyz.npy",
-                                                #    "+task.env.hand_init_path=allegro_hand_dof_default_pos_dexgraspnet_batch_13_zyx.npy",
-                                                #    "+task.env.hand_init_path=allegro_hand_dof_default_pos_dexgraspnet_batch_13_no_transform.npy",
-                                                #    "+task.env.hand_init_path=allegro_hand_dof_default_pos.npy",
-                                                #    "+task.env.hand_init_path=allegro_hand_dof_default_pos_zeros.npy",
                                                     "+task.env.hand_init_path=allegro_hand_dof_default_pos_spray_6.npy",
-                                                #    "+task.env.hand_init_path=allegro_hand_dof_default_pos_dexgraspnet_batch_5_no_transform.npy",
-                                                #    "+task.env.hand_init_path=dgn_grasp_world_obj_batch_5.npy",
-                                                #    "+task.env.hand_init_path=allegro_hand_dof_default_pos_scissors_closer.npy",
                                                     "task.env.resetDofPosRandomInterval=0.",
                                                 #    "task.env.load_default_pos=true",
-                                                #    "checkpoint=./runs/full_state_spray/nn/full_state_spray.pth",
                                                     "num_envs=44",
                                                     "+task.env.dexGraspNet=false",
                                                     # "+task.env.manip_obs_keys=['object_pose', 'object_dof_pos']",
@@ -200,9 +191,7 @@ def init_toy_env():
     # actions = torch.sin(torch.arange(0, 1000) / 10).unsqueeze(1).repeat(1, 22).unsqueeze(1).repeat(1, env.num_envs, 1)
     initial_action = torch.zeros(env.num_envs, 22)
 
-    # TODO: implement function to change the pose to match dexgraspnet by applying actions
-
-    obs, r, done, info = env.step(initial_action)
+    obs, r, done, info = env.step(initial_action) # TODO: see if this is modifying the state too much
     print("initial hand dofs pos after action: ", env.shadow_hand_dof_pos[0])
 
     return env, ax
@@ -211,11 +200,8 @@ def single_goal_greedy(env, goal, goal_eps=0.01):
     total_cost = 0
     while True:
         initial_action = torch.zeros(22)
-        cost, action = optimize_action_cvxpy(action=initial_action,
-                                            manipulability=env.current_obs_dict["manipulability"],
-                                            obj_curr=env.current_obs_dict["manip_obs"][0],
-                                            obj_des=goal,
-                                            ax=ax)
+        cost, action = optimize_action_cvxpy(env=env, goal=goal)
+
         total_cost += cost
         
         # adding noise to the optimal action
@@ -223,8 +209,8 @@ def single_goal_greedy(env, goal, goal_eps=0.01):
 
         plot_live_cost_bar((1 - cost), ax)
         
+        action = torch.zeros(22)
         action = action.unsqueeze(0).repeat(env.num_envs, 1) # This only works if the action is the same for all envs
-        
         obs, r, done, info = env.step(action)
 
         # print("self.net_cf", env.net_cf.shape)
@@ -245,12 +231,8 @@ def traj_goal_greedy(goal_traj, env, goal_eps=0.01):
     total_cost = 0
     while traj_idx < len(goal_traj):
         goal = goal_traj[traj_idx]
-        cost, action = optimize_action_cvxpy(action=initial_action,
-                                            manipulability=env.current_obs_dict["manipulability"],
-                                            obj_curr=env.current_obs_dict["manip_obs"][0],
-                                            obj_des=goal,
-                                            ax=ax)
-        
+        cost, action = optimize_action_cvxpy(env=env, goal=goal)
+
         plot_live_cost_bar((1 - cost), ax)
         total_cost += cost
 
@@ -277,41 +259,271 @@ def traj_goal_greedy(goal_traj, env, goal_eps=0.01):
     print("reached goal")
     print("total cost", total_cost)
 
-def get_hand_contacts(env):
-    torch.set_printoptions(threshold=10_000)
-    initial_action = torch.ones(env.num_envs, 22)
+def get_fingertip_contacts(env):
+    contacts = env.net_cf.view(env.num_envs, -1, 3)
+    fingertip_contacts = contacts[:, env.fingertip_indices]
+    return fingertip_contacts
 
-    while True:
-        # cost, action = optimize_action_cvxpy(action=initial_action,
-        #                                     manipulability=env.current_obs_dict["manipulability"],
-        #                                     obj_curr=env.current_obs_dict["manip_obs"][0],
-        #                                     obj_des=env.current_obs_dict["manip_goal"][0],
-        #                                     ax=ax)
+def get_binary_contacts(env, thresh=0.01):
+    fingertip_contacts = get_fingertip_contacts(env)
+    binary_contact = (torch.norm(fingertip_contacts, dim=2) > thresh)
+    return binary_contact
+
+def imagine_action(env, action, render=False):
+    initial_state = np.copy(env.gym.get_sim_rigid_body_states(env.sim, gymapi.STATE_ALL))
+    env_handles = env.envs
+    hand_handles = env.shadow_hands
+    actor_handles = env.object_actor_handles
+    initial_obj_dof_pos_targets = np.copy(env.gym.get_vec_actor_dof_states(env_handles, actor_handles, gymapi.STATE_ALL))
+    initial_obj_dof_vel_targets = np.copy(env.gym.get_vec_actor_dof_states(env_handles, actor_handles, gymapi.STATE_ALL))
+    initial_hand_dof_pos_targets = np.copy(env.gym.get_vec_actor_dof_states(env_handles, hand_handles, gymapi.STATE_ALL))
+    initial_hand_dof_vel_targets = np.copy(env.gym.get_vec_actor_dof_states(env_handles, hand_handles, gymapi.STATE_ALL))
+
+    if not render:
+        env.force_render = False
+    obs, r, done, info = env.step(action) # set, simulate, refresh
+    env.gym.fetch_results(env.sim, True)
+    print("imagined hand pos", env.current_obs_dict["hand_dof_pos"][0])
+    env.force_render = True
+
+    next_obs_dict = env.current_obs_dict
+    next_state = np.copy(env.gym.get_sim_rigid_body_states(env.sim, gymapi.STATE_ALL))
+    next_contacts = get_binary_contacts(env)
+
+    env.gym.set_sim_rigid_body_states(env.sim, initial_state, gymapi.STATE_ALL)
+    for i in range(env.num_envs):
+        env.gym.set_actor_dof_position_targets(env_handles[i], actor_handles[i], np.array([initial_obj_dof_pos_targets[i][0][0], initial_obj_dof_pos_targets[i][0][1]], dtype=np.float32))
+        env.gym.set_actor_dof_velocity_targets(env_handles[i], actor_handles[i], np.array([initial_obj_dof_vel_targets[i][0][0], initial_obj_dof_vel_targets[i][0][1]], dtype=np.float32))
+
+        initial_hand_dof_pos_targets_numpy = np.concatenate(([initial_hand_dof_pos_targets[i][j][0] for j in range(22)], [initial_hand_dof_pos_targets[i][j][1] for j in range(22)]), axis=0) # , dtype=np.float32)
+        initial_hand_dof_vel_targets_numpy = np.concatenate(([initial_hand_dof_vel_targets[i][j][0] for j in range(22)], [initial_hand_dof_vel_targets[i][j][1] for j in range(22)]), axis=0) # , dtype=np.float32)
+        env.gym.set_actor_dof_position_targets(env_handles[i], hand_handles[i], initial_hand_dof_pos_targets_numpy)
+        env.gym.set_actor_dof_velocity_targets(env_handles[i], hand_handles[i], initial_hand_dof_vel_targets_numpy)
+    
+        env.gym.simulate(env.sim)
+        env.gym.fetch_results(env.sim, True)
+        env.gym.refresh_rigid_body_state_tensor(env.sim)
+
+    return next_obs_dict, next_state, next_contacts
+
+def get_manipulability_fd_toy(env, manip_obs_dict, obs_keys_manip, eps=1e-2):
+    '''
+    M = get_manipulability_fd_toy(env, manip_obs_dict=env.current_obs_dict, obs_keys_manip=["object_dof_pos"]).T.cpu()
+    Calculates finite difference manipulability by perturbing each action dimension separately across parallel environments.
+    '''
+
+    obs = obs_dict_to_tensor(manip_obs_dict, obs_keys_manip, env.num_envs, env.device)
+    num_envs = env.actions.shape[0]
+    input_dim = env.actions.shape[1]
+    output_dim = obs.shape[1]
+    # manipulability_fd = torch.empty((bs, output_dim, input_dim), dtype=torch.float64, device=self.device) # TODO: allocate outside of this function
+    
+    initial_state = np.copy(env.gym.get_sim_rigid_body_states(env.sim, gymapi.STATE_ALL)) # (num_envs*(23+7))
+    print("initial state shape:", initial_state.shape)
+
+    assert num_envs % (input_dim * 2) == 0, "the number of environments must be divisible by 2 * input dim for vectorized finite difference manipulability calculation"
+    
+    num_manips = num_envs // (input_dim * 2)
+
+    initial_state_synced = initial_state
+    # # TODO: Move state sync into its own function
+    # initial_state_rows = initial_state.reshape((num_envs, -1))[0::(input_dim * 2)] # (num_manips, 30) # select every input_dim-th row
+    # repeated_rows = np.repeat(initial_state_rows, repeats=(input_dim * 2), axis=0)
+    # initial_state_synced = repeated_rows.reshape((num_manips*input_dim*2, -1)) # (num_manips*input_dim*2, num_rigid_bodies) reshape to original shape
+
+    # identity matrix with adjacent rows having opposite signs ([1, 0, 0], [-1, 0, 0], [0, 1, 0], [0, -1, 0], ...)
+    eps_parallel = torch.eye(input_dim, device=env.device).repeat(num_manips, 1).repeat_interleave(2, dim=0) * eps  # (num_manips*input_dim*2, input_dim)
+    eps_parallel[1::2] *= -1 # alternate rows have opposite signs
+
+    # env.actions += eps_parallel
+    env.actions = eps_parallel
+
+    manip_args = env.get_manip_args()
+    obs_dict_1, _, _, _ = manip_step(manip_args)
+
+    states = obs_dict_to_tensor(obs_dict_1, env.obs_keys_manip, env.num_envs, env.device) # (num_manips*input_dim*2, output_dim)
+
+    next_state_1 = states[0::2] # (num_manips*input_dim, output_dim) # even rows
+    next_state_2 = states[1::2] # (num_manips*input_dim, output_dim) # odd rows
+
+    # doutput/dinput
+    manipulability_fd = (next_state_1 - next_state_2) / (2 * eps) # (num_manips*input_dim, output_dim)
+
+    env.gym.set_sim_rigid_body_states(env.sim, initial_state_synced, gymapi.STATE_ALL)
+
+    return manipulability_fd
+
+def branch_contact_modes(env, goal, render=False):
+    # TODO: fix issue with moving wrist
+    # for each fingertip, we want to search through the joints that move the fingertip and choose the one that minimizes the cost
+    # we can do this by imagining the action and checking the cost
+    # get contacts for each fingertip
+    fingertip_contacts = get_fingertip_contacts(env)
+    contact_norms = torch.norm(fingertip_contacts, dim=2)
+    initial_binary_contact = (contact_norms > 0.01)
+
+    min_cost = np.ones(4) * np.inf
+    min_action = torch.zeros(4, env.num_envs, 22)
+    for i in range(4): # for each fingertip
+        for j in range(4*i + 6, 4*i + 10): # for each joint that moves the fingertip
+            for k in np.linspace(-1, 1, 10): # for each action
+            # for k in np.concatenate((np.ones(20) * -0.1, np.ones(20) * 0.1)): # for each action
+                print(i, j, k)
+                action = torch.zeros(22)
+                # action[0:6] = env.current_obs_dict["hand_joint_pos_init"][0][0:6]  - env.current_obs_dict["hand_dof_pos"][0][0:6] # set the first 6 dofs to the current position
+                # print("initial hand pos", env.current_obs_dict["hand_joint_pos_init"][0])
+                # print(env.current_obs_dict["hand_dof_pos"][0])
+                action[j] = k # set joint j to value k for finger i
+                action = action.unsqueeze(0).repeat(env.num_envs, 1)
+                imagined_obs_dict, imagined_state, imagined_contacts = imagine_action(env, action, render=render)
+
+                # calculate cost
+                # if cost is less than the current minimum cost, update the minimum cost and the action
+                cost, action = optimize_action_cvxpy(env=env, goal=goal)
+
+                print("initial contact", initial_binary_contact[0])
+                print("imagined contact", imagined_contacts[0])
+                print("imagined hand pos", imagined_obs_dict["hand_dof_pos"][0])
+                if cost < min_cost[i] and not (initial_binary_contact[0][i] and not imagined_contacts[0][i]):
+                    min_cost[i] = cost
+                    min_action[i] = action
+
+        print("min costs", min_cost)
+        print("min actions", torch.round(min_action, decimals=2))
+
+def branch_random(env, goal, num_branches=3, noise_mag = .1):
+    fingertip_contacts = get_fingertip_contacts(env)
+    contact_norms = torch.norm(fingertip_contacts, dim=2)
+    initial_binary_contact = (contact_norms > 0.01)
+
+    # [{'state': root_state, 'contacts': contacts, 'actions': [], 'cost': float('inf')}]
+    # initial_state = np.copy(env.gym.get_sim_rigid_body_states(env.sim, gymapi.STATE_ALL))
+    children = []
+
+    min_cost = np.ones(num_branches) * np.inf
+    min_action = torch.zeros(num_branches, env.num_envs, 22)
+    for i in range(num_branches):
+        rand_action = torch.randn((22))
+        rand_action_copied = rand_action.unsqueeze(0).repeat(env.num_envs, 1)
+        rand_action_normalized = rand_action_copied / torch.norm(rand_action_copied, dim=1, keepdim=True) * noise_mag
+        imagined_obs_dict, imagined_state, imagined_contacts = imagine_action(env, rand_action_normalized, render=True)
+        imagined_contacts = get_binary_contacts(env)
+
+        child_state = np.copy(env.gym.get_sim_rigid_body_states(env.sim, gymapi.STATE_ALL)) # NOTE: we can also save the state after applying delta q*
+        contacts = get_binary_contacts(env)
+
+        # calculate cost
+        # if cost is less than the current minimum cost, update the minimum cost and the action
+        cost, optimal_action = optimize_action_cvxpy(env=env, goal=goal)
         
-        # action = action.unsqueeze(0).repeat(env.num_envs, 1)
-        obs, r, done, info = env.step(initial_action)
+        children.append({'state': child_state, 'contacts': contacts, 'actions': [rand_action], 'q*': optimal_action, 'cost': cost})
+
+    #     print("initial contact", initial_binary_contact[0])
+    #     print("imagined contact", imagined_contacts[0])
+    #     print("imagined hand pos", imagined_obs_dict["hand_dof_pos"][0])
+    #     if cost < min_cost[i] and not (initial_binary_contact[0][i] and not imagined_contacts[0][i]):
+    #         min_cost[i] = cost
+    #         min_action[i] = action
+
+    #     time.sleep(1)
+    # print("min costs", min_cost)
+    # print("min actions", torch.round(min_action, decimals=2))
+
+    return children
+
+def test_imagine_action(env):
+    '''
+    Applying imagined actions to stress test imagine_action.
+    The state should remain unchanged if the function is working correctly.
+    '''
+    for i in range(100):
+        rand_action = torch.randn((22))
+        rand_action = rand_action.unsqueeze(0).repeat(env.num_envs, 1)
+        imagined_obs_dict, imagined_state, imagined_contacts = imagine_action(env, rand_action, render=True)
+        time.sleep(1)
+
+def beam_search(env, goal, branching_func, beam_width=3, max_iters=100, cost_thresh=0.1):
+    root_state = np.copy(env.gym.get_sim_rigid_body_states(env.sim, gymapi.STATE_ALL))
+    contacts = get_binary_contacts(env)
+    cost, optimal_action = optimize_action_cvxpy(env=env, goal=goal)
+    env_handles = env.envs
+    hand_handles = env.shadow_hands
+    actor_handles = env.object_actor_handles
+    initial_obj_dof_pos_targets = np.copy(env.gym.get_vec_actor_dof_states(env_handles, actor_handles, gymapi.STATE_ALL))
+    initial_obj_dof_vel_targets = np.copy(env.gym.get_vec_actor_dof_states(env_handles, actor_handles, gymapi.STATE_ALL))
+    initial_hand_dof_pos_targets = np.copy(env.gym.get_vec_actor_dof_states(env_handles, hand_handles, gymapi.STATE_ALL))
+    initial_hand_dof_vel_targets = np.copy(env.gym.get_vec_actor_dof_states(env_handles, hand_handles, gymapi.STATE_ALL))
+
+    queue = deque([{'state': root_state, 'contacts': contacts, 'actions': [], 'q*': optimal_action, 'cost': float('inf')}])
+    
+    for _ in range(max_iters):
+        new_candidates = []
+        # Expand each state in the queue
+        while queue:
+            current_candidate = queue.popleft()
+            env.gym.set_sim_rigid_body_states(env.sim, current_candidate['state'], gymapi.STATE_ALL)
+            for i in range(env.num_envs):
+                env.gym.set_actor_dof_position_targets(env_handles[i], actor_handles[i], np.array([initial_obj_dof_pos_targets[i][0][0], initial_obj_dof_pos_targets[i][0][1]], dtype=np.float32))
+                env.gym.set_actor_dof_velocity_targets(env_handles[i], actor_handles[i], np.array([initial_obj_dof_vel_targets[i][0][0], initial_obj_dof_vel_targets[i][0][1]], dtype=np.float32))
+
+                initial_hand_dof_pos_targets_numpy = np.concatenate(([initial_hand_dof_pos_targets[i][j][0] for j in range(22)], [initial_hand_dof_pos_targets[i][j][1] for j in range(22)]), axis=0) # , dtype=np.float32)
+                initial_hand_dof_vel_targets_numpy = np.concatenate(([initial_hand_dof_vel_targets[i][j][0] for j in range(22)], [initial_hand_dof_vel_targets[i][j][1] for j in range(22)]), axis=0) # , dtype=np.float32)
+                env.gym.set_actor_dof_position_targets(env_handles[i], hand_handles[i], initial_hand_dof_pos_targets_numpy)
+                env.gym.set_actor_dof_velocity_targets(env_handles[i], hand_handles[i], initial_hand_dof_vel_targets_numpy)
+                env.gym.simulate(env.sim)
+                env.gym.fetch_results(env.sim, True)
+                env.gym.refresh_rigid_body_state_tensor(env.sim)
+
+            print("current_candidate", current_candidate)
+            cost, optimal_action = optimize_action_cvxpy(env=env, goal=goal)
+            
+            # Use the branching function to generate possible next actions
+            children = branching_func(env, goal)
+
+            # For each action, imagine the next state and add it as a new candidate
+            for child in children:
+                if child['cost'] < cost_thresh:
+                    return current_candidate['actions'] + [child['actions']]  # Early stopping if goal is reached
+                
+                new_candidates.append({'state': child['state'],
+                                       'contacts': child['contacts'],
+                                       'actions': current_candidate['actions'] + child['actions'],
+                                       'q*': child['q*'],
+                                       'cost': child['cost']})
         
-        contacts = env.net_cf
-        print("contacts", contacts)
-        # fingertip_contacts = contacts[:, env.fingertip_indices]
-
-        hand_in_contact = env.get_hand_in_contact()
-        print("hand in contact", hand_in_contact)
-
-
+        # Keep only the top N candidates with the lowest cost
+        new_candidates.sort(key=lambda x: x['cost'])
+        queue.extend(new_candidates[:beam_width]) # first = lowest
+        
+        if not queue:  # Stop if no candidates are left
+            break
+    
+    # Return best sequence found, even if it doesn't meet the threshold
+    best_sequence = sorted(queue, key=lambda x: x['cost'], reverse=True)[0] if queue else []
+    return best_sequence
+                
 if __name__ == "__main__":
     env, ax = init_toy_env()
 
+    # test_imagine_action(env)
     # goal = env.current_obs_dict["manip_goal"][0]
+    goal = torch.tensor([0.075])
+    obs_keys_manip = ["object_dof_pos"]
+
+    # single goal
     # single_goal_greedy(env, goal)
 
-    # initial_obj_pose = torch.tensor([-0.12, -0.12, 0.2]) # , 0., 0., 0., 1.])
-    # goal_obj_pose = torch.tensor([-0.0, -0.12, 0.2]) # , 0., 0., 0., 1.])
-
+    # trajectory goal
     # initial_obj_pose = env.current_obs_dict["manip_obs"][0]
     # goal_obj_pose = torch.tensor([0.075])
-    # goal_traj = torch.stack([torch.linspace(initial_obj_pose[i], goal_obj_pose[i], 10) for i in range(initial_obj_pose.shape[0])], dim=1)
+    # goal_traj = torch.stack([torch.linspace(initial_obj_pose[i], goal_obj_pose[i], 5) for i in range(initial_obj_pose.shape[0])], dim=1)
     # traj_goal_greedy(goal_traj, env)
 
-    get_hand_contacts(env)
-    
+    # branch contact modes
+    # goal = env.current_obs_dict["manip_goal"][0]
+    # branch_contact_modes(env, goal, render=True)
+    # branch_random(env, goal)
+
+    best_traj = beam_search(env, goal=goal, branching_func=branch_random, beam_width=3, max_iters=100, cost_thresh=0.1)
+
+    print("best traj: \n", best_traj)    
