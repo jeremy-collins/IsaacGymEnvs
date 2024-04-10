@@ -458,10 +458,10 @@ def get_manipulability_fd_cpu(kwargs, initial_state):
     num_manips = num_envs // (input_dim * 2)
 
     initial_state_synced = initial_state
-    # # TODO: Move state sync into its own function
-    # initial_state_rows = initial_state.reshape((num_envs, -1))[0::(input_dim * 2)] # (num_manips, 30) # select every input_dim-th row
-    # repeated_rows = np.repeat(initial_state_rows, repeats=(input_dim * 2), axis=0)
-    # initial_state_synced = repeated_rows.reshape((num_manips*input_dim*2, -1)) # (num_manips*input_dim*2, num_rigid_bodies) reshape to original shape
+    # TODO: Move state sync into its own function
+    initial_state_rows = initial_state.reshape((num_envs, -1))[0::(input_dim * 2)] # (num_manips, 30) # select every input_dim-th row
+    repeated_rows = np.repeat(initial_state_rows, repeats=(input_dim * 2), axis=0)
+    initial_state_synced = repeated_rows.reshape((num_manips*input_dim*2, -1)) # (num_manips*input_dim*2, num_rigid_bodies) reshape to original shape
 
     # identity matrix with adjacent rows having opposite signs ([1, 0, 0], [-1, 0, 0], [0, 1, 0], [0, -1, 0], ...)
     eps_parallel = torch.eye(input_dim, device=kwargs["device"]).repeat(num_manips, 1).repeat_interleave(2, dim=0) * kwargs["eps"]  # (num_manips*input_dim*2, input_dim)
@@ -481,7 +481,7 @@ def get_manipulability_fd_cpu(kwargs, initial_state):
     manipulability_fd = (next_state_1 - next_state_2) / (2 * kwargs["eps"]) # (num_manips*input_dim, output_dim)
 
     kwargs["gym"].set_sim_rigid_body_states(kwargs["sim"], initial_state_synced, gymapi.STATE_ALL)
-    kwargs["gym"].set_sim_rigid_body_states(kwargs["sim"], initial_state, gymapi.STATE_ALL)
+    # kwargs["gym"].set_sim_rigid_body_states(kwargs["sim"], initial_state, gymapi.STATE_ALL)
     # for i in range(kwargs["num_envs"]):
     #     kwargs["gym"].set_actor_dof_position_targets(env_handles[i], actor_handles[i], np.array([initial_obj_dof_pos_targets[i][0][0], initial_obj_dof_pos_targets[i][0][1]], dtype=np.float32))
     #     kwargs["gym"].set_actor_dof_velocity_targets(env_handles[i], actor_handles[i], np.array([initial_obj_dof_vel_targets[i][0][0], initial_obj_dof_vel_targets[i][0][1]], dtype=np.float32))
@@ -493,7 +493,15 @@ def get_manipulability_fd_cpu(kwargs, initial_state):
     
     kwargs["gym"].simulate(kwargs["sim"])
     kwargs["gym"].fetch_results(kwargs["sim"], True)
-    kwargs["gym"].refresh_rigid_body_state_tensor(kwargs["sim"])
+    # kwargs["gym"].refresh_rigid_body_state_tensor(kwargs["sim"])
+
+    # update the viewer
+    kwargs["gym"].step_graphics(kwargs["sim"])
+
+    # Wait for dt to elapse in real time.
+    # This synchronizes the physics simulation with the rendering rate.
+    kwargs["gym"].sync_frame_time(kwargs["sim"])  
+  
     return manipulability_fd
 
 def get_manipulability_fd_rand_vec(kwargs):
