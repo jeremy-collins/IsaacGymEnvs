@@ -14,6 +14,9 @@ env:
     hand_rot_reward: ${task.rewards.hand_rot_reward}
    
   fallPenalty: 0.0
+  hand_init_config:
+    _target_: pair_grasp.grasp.HandInitConfig
+    hand_init_path: allegro_hand_dof_default_pos.npy # hand_init_scissors.npy
 
   useOneHot: true  
   objectType: 

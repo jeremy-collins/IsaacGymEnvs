@@ -51,6 +51,10 @@ env:
   forceDecay: 0.99
   forceDecayInterval: 0.08
 
+  hand_init_config:
+    _target_: pair_grasp.grasp.HandInitConfig
+    hand_init_path: allegro_hand_dof_default_pos.npy # hand_init_scissors.npy
+
   # reward -> dictionary
   successTolerance: 0.005
   rewardParams: 
