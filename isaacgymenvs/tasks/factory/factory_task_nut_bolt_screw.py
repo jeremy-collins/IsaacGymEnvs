@@ -39,9 +39,9 @@ import hydra
 import math
 import omegaconf
 import os
-import torch
 
 from isaacgym import gymapi, gymtorch
+import torch
 from isaacgymenvs.utils import torch_jit_utils as torch_utils
 import isaacgymenvs.tasks.factory.factory_control as fc
 from isaacgymenvs.tasks.factory.factory_env_nut_bolt import FactoryEnvNutBolt

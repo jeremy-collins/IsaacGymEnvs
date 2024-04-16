@@ -278,35 +278,42 @@ def manip_step(
         )
 
 def manip_reset(gym, sim, prev_actor_root_state_tensor, prev_dof_state_tensor, prev_rigid_body_tensor, prev_targets):
-    # printing shapes
-    # print("prev_actor_root_state_tensor", prev_actor_root_state_tensor.shape)
-    # print("prev_dof_state_tensor", prev_dof_state_tensor.shape)
-    # print("prev_rigid_body_tensor", prev_rigid_body_tensor.shape)
-    # print("prev_targets", prev_targets.shape)
-         
+    # env.rb_forces *= 0 # TODO: see if we should save these instead
     gym.set_actor_root_state_tensor(
-        sim,
-        gymtorch.unwrap_tensor(prev_actor_root_state_tensor)
-    )
-    # print("set_actor_root_state_tensor in manip_reset with result", result)
+            sim,
+            gymtorch.unwrap_tensor(prev_actor_root_state_tensor)
+        )
 
     gym.set_dof_state_tensor(
         sim,
         gymtorch.unwrap_tensor(prev_dof_state_tensor)
     )
-    # print("set_dof_state_tensor in manip_reset with result", result)
 
-    # print("set_rigid_body_state_tensor in manip_reset")
-    # gym.set_rigid_body_state_tensor( # doesn't work (flex backend only)
-    #     sim,
-    #     gymtorch.unwrap_tensor(prev_rigid_body_tensor)
-    # )
+    # gym.apply_rigid_body_force_tensors(
+    #         sim,
+    #         gymtorch.unwrap_tensor(rb_forces),
+    #         None,
+    #         gymapi.LOCAL_SPACE,
+    #     )
 
     gym.set_dof_position_target_tensor(
         sim,
         gymtorch.unwrap_tensor(prev_targets),
     )
-    # print("set_dof_position_target_tensor in manip_reset with result", result)
+
+    gym.simulate(sim)
+
+    gym.refresh_actor_root_state_tensor(sim)
+    gym.refresh_dof_state_tensor(sim)
+    gym.refresh_rigid_body_state_tensor(sim)
+    gym.refresh_net_contact_force_tensor(sim)
+
+    # update the viewer
+    gym.step_graphics(sim)
+
+    # Wait for dt to elapse in real time.
+    # This synchronizes the physics simulation with the rendering rate.
+    gym.sync_frame_time(sim)
 
 def manip_refresh(gym, sim):
     gym.refresh_actor_root_state_tensor(sim)
@@ -354,6 +361,50 @@ def get_manipulability_fd(kwargs):
 
         return manipulability_fd, prev_bufs_manip
 
+def get_manipulability_fd_rand_vec(kwargs):
+    '''
+    Calculates finite difference manipulability by randomly perturbing actions separately across parallel environments.
+
+    Args:
+        f (function): dynamics function
+        obs_keys: list of keys to obs_dict
+        action: action
+        eps: finite difference step
+    '''
+
+    # These tensors are refreshed in compute_observations(), so they don't need updating beforehand
+    prev_bufs_manip = {
+        "prev_actor_root_state_tensor": kwargs["root_state_tensor"].clone(),
+        "prev_dof_state_tensor": kwargs["dof_state_tensor"].clone(),
+        "prev_rigid_body_tensor": kwargs["rigid_body_states"].clone(),
+    }
+
+    obs = obs_dict_to_tensor(kwargs["obs_dict"], kwargs["obs_keys_manip"], kwargs["num_envs"], kwargs["device"])
+    bs = kwargs["actions"].shape[0]
+    input_dim = kwargs["actions"].shape[1]
+    output_dim = obs.shape[1]
+
+    # making eps parallel a random unit vector for each row
+    rand = torch.randn((bs, input_dim), device=kwargs["device"])
+    eps_parallel = rand / torch.norm(rand, dim=1, keepdim=True) * kwargs["eps"]
+
+    # for i in range(input_dim):
+    kwargs["actions"] += eps_parallel # perturbing the input (x + eps for each dimension)
+
+    obs_dict_1, _, _, _ = kwargs["f"](kwargs)
+    kwargs["actions"] -= 2 * eps_parallel # perturbing the input the other way (x - eps for each dimension)
+
+    obs_dict_2, _, _, _ = kwargs["f"](kwargs)
+    kwargs["actions"] += eps_parallel # set the input back to initial value
+
+    next_state_1 = obs_dict_to_tensor(obs_dict_1, kwargs["obs_keys_manip"], kwargs["num_envs"], kwargs["device"]) # (num_manips*input_dim, output_dim)
+    next_state_2 = obs_dict_to_tensor(obs_dict_2, kwargs["obs_keys_manip"], kwargs["num_envs"], kwargs["device"]) # (num_manips*input_dim, output_dim)
+
+    # doutput/dinput
+    manipulability_fd = (next_state_1 - next_state_2) / (2 * kwargs["eps"]) # (num_manips*input_dim, output_dim)
+
+    return manipulability_fd, prev_bufs_manip
+
 def get_manipulability_fd_parallel_actions(kwargs):
     '''
     Calculates finite difference manipulability by perturbing each action dimension separately across parallel environments.
@@ -364,14 +415,6 @@ def get_manipulability_fd_parallel_actions(kwargs):
         action: action
         eps: finite difference step
     '''
-
-    # prev_bufs_manip = {
-    #     "prev_actor_root_state_tensor": kwargs["root_state_tensor"].clone(),
-    #     "prev_dof_state_tensor": kwargs["dof_state_tensor"].clone(),
-    #     "prev_rigid_body_tensor": kwargs["rigid_body_states"].clone(),
-    #     "prev_targets": kwargs["prev_targets"].clone()
-    # }
-    
     obs = obs_dict_to_tensor(kwargs["obs_dict"], kwargs["obs_keys_manip"], kwargs["num_envs"], kwargs["device"])
     bs = kwargs["actions"].shape[0]
     input_dim = kwargs["actions"].shape[1]
@@ -417,21 +460,28 @@ def get_manipulability_fd_parallel_actions(kwargs):
     # doutput/dinput
     manipulability_fd = (next_state_1 - next_state_2) / (2 * kwargs["eps"]) # (num_manips*input_dim, output_dim)
 
-    prev_bufs_manip = {
-        "prev_actor_root_state_tensor": initial_actor_root_state_tensor_copied.clone(),
-        "prev_dof_state_tensor": initial_dof_state_tensor_copied.clone(),
-        "prev_rigid_body_tensor": initial_rigid_body_tensor_copied.clone(),
-        "prev_targets": initial_prev_target_tensor_copied.clone(),
-        # "prev_contact_force_tensor": kwargs["contact_force_tensor"].clone()
-    }
+    # prev_bufs_manip = {
+    #     "prev_actor_root_state_tensor": initial_actor_root_state_tensor_copied.clone(),
+    #     "prev_dof_state_tensor": initial_dof_state_tensor_copied.clone(),
+    #     "prev_rigid_body_tensor": initial_rigid_body_tensor_copied.clone(),
+    #     "prev_targets": initial_prev_target_tensor_copied.clone(),
+    #     # "prev_contact_force_tensor": kwargs["contact_force_tensor"].clone()
+    # }
+
+    manip_reset(kwargs["gym"],
+                kwargs["sim"],
+                initial_actor_root_state_tensor_copied, 
+                initial_dof_state_tensor_copied,
+                initial_rigid_body_tensor_copied, 
+                initial_prev_target_tensor_copied)
 
     # refresh the state tensors
     # kwargs["gym"].refresh_dof_state_tensor(kwargs["sim"])
     # kwargs["gym"].refresh_actor_root_state_tensor(kwargs["sim"])
     # kwargs["gym"].refresh_rigid_body_state_tensor(kwargs["sim"])
 
-    return manipulability_fd, prev_bufs_manip
-
+    # return manipulability_fd, prev_bufs_manip
+    return manipulability_fd
 
 def get_manipulability_fd_cpu(kwargs, initial_state):
     '''
@@ -451,7 +501,6 @@ def get_manipulability_fd_cpu(kwargs, initial_state):
     # manipulability_fd = torch.empty((bs, output_dim, input_dim), dtype=torch.float64, device=self.device) # TODO: allocate outside of this function
     
     # initial_state = np.copy(kwargs["gym"].get_sim_rigid_body_states(kwargs["sim"], gymapi.STATE_ALL)) # (num_envs*(23+7))
-    print("initial state shape:", initial_state.shape)
 
     assert num_envs % (input_dim * 2) == 0, "the number of environments must be divisible by 2 * input dim for vectorized finite difference manipulability calculation"
     
@@ -503,47 +552,3 @@ def get_manipulability_fd_cpu(kwargs, initial_state):
     kwargs["gym"].sync_frame_time(kwargs["sim"])  
   
     return manipulability_fd
-
-def get_manipulability_fd_rand_vec(kwargs):
-    '''
-    Calculates finite difference manipulability by randomly perturbing actions separately across parallel environments.
-
-    Args:
-        f (function): dynamics function
-        obs_keys: list of keys to obs_dict
-        action: action
-        eps: finite difference step
-    '''
-
-    # These tensors are refreshed in compute_observations(), so they don't need updating beforehand
-    prev_bufs_manip = {
-        "prev_actor_root_state_tensor": kwargs["root_state_tensor"].clone(),
-        "prev_dof_state_tensor": kwargs["dof_state_tensor"].clone(),
-        "prev_rigid_body_tensor": kwargs["rigid_body_states"].clone(),
-    }
-
-    obs = obs_dict_to_tensor(kwargs["obs_dict"], kwargs["obs_keys_manip"], kwargs["num_envs"], kwargs["device"])
-    bs = kwargs["actions"].shape[0]
-    input_dim = kwargs["actions"].shape[1]
-    output_dim = obs.shape[1]
-
-    # making eps parallel a random unit vector for each row
-    rand = torch.randn((bs, input_dim), device=kwargs["device"])
-    eps_parallel = rand / torch.norm(rand, dim=1, keepdim=True) * kwargs["eps"]
-
-    # for i in range(input_dim):
-    kwargs["actions"] += eps_parallel # perturbing the input (x + eps for each dimension)
-
-    obs_dict_1, _, _, _ = kwargs["f"](kwargs)
-    kwargs["actions"] -= 2 * eps_parallel # perturbing the input the other way (x - eps for each dimension)
-
-    obs_dict_2, _, _, _ = kwargs["f"](kwargs)
-    kwargs["actions"] += eps_parallel # set the input back to initial value
-
-    next_state_1 = obs_dict_to_tensor(obs_dict_1, kwargs["obs_keys_manip"], kwargs["num_envs"], kwargs["device"]) # (num_manips*input_dim, output_dim)
-    next_state_2 = obs_dict_to_tensor(obs_dict_2, kwargs["obs_keys_manip"], kwargs["num_envs"], kwargs["device"]) # (num_manips*input_dim, output_dim)
-
-    # doutput/dinput
-    manipulability_fd = (next_state_1 - next_state_2) / (2 * kwargs["eps"]) # (num_manips*input_dim, output_dim)
-
-    return manipulability_fd, prev_bufs_manip
