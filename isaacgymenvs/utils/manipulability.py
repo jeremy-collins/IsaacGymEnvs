@@ -262,7 +262,7 @@ def manip_step(
         # check obs shape
         assert (
             obs_tensor.shape[-1] == kwargs["num_obs_dict"][kwargs["obs_type"]]
-        ), f"Obs shape {obs_tensor.shape} not correct!"
+        ), f"Obs shape {obs_tensor.shape} not correct! Should be {kwargs['num_obs_dict'][kwargs['obs_type']]}"
         kwargs["obs_buf"][:] = obs_tensor
         # if self.use_image_obs:
         #     IsaacGymCameraBase.compute_observations(self)

@@ -1,0 +1,1 @@
+python tasks/articulate_toy.py --name wandb_test --method beam_search --branching_func branch_random --beam_width 3 --branching_factor 10 --max_iters 10 --cost_thresh 0.1 --num_perturb 2 --num_opt 2
