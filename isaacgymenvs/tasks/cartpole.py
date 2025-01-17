@@ -28,9 +28,9 @@
 
 import numpy as np
 import os
+from isaacgym import gymutil, gymtorch, gymapi
 import torch
 
-from isaacgym import gymutil, gymtorch, gymapi
 from .base.vec_task import VecTask
 
 class Cartpole(VecTask):

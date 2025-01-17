@@ -159,7 +159,6 @@ def apply_random_samples(prop, og_prop, attr, attr_randomization_params,
     """
 
     if isinstance(prop, gymapi.SimParams):
-        
         if attr == 'gravity':
             
             sample = generate_random_samples(attr_randomization_params, 3, curr_gym_step_count)

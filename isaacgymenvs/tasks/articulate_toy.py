@@ -191,7 +191,7 @@ def init_toy_env():
                 # "+task.env.manip_goal_keys=['goal_pos']",
                 "+task.env.manip_obs_keys=['object_dof_pos']",
                 "+task.env.manip_goal_keys=['goal_dof_pos']",
-                "headless=false",
+                "headless=true",
                 # "-m"
             ],
         )
